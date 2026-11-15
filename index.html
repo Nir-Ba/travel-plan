@@ -88,7 +88,7 @@
 </head>
 <body>
 <main>
-  <h1>Travel Plan</h1>
+  <h1>Travel Plan <span id="ver" style="font-size:13px;font-weight:500;color:var(--muted);letter-spacing:0"></span></h1>
 
   <div class="seg section" role="group" aria-label="Trip type">
     <button id="segCity" class="on">Inside a city</button>
@@ -136,7 +136,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.3.1";
 const KEY = "travelplan.v1";
 const $ = (id) => document.getElementById(id);
 
@@ -590,6 +590,7 @@ $("segTrip").onclick = () => { state.mode = "trip"; save(); applyMode(); };
 load();
 $("city").value = state.city || "";
 applyMode();
+$("ver").textContent = "v" + APP_VERSION;
 console.log("Travel Plan", APP_VERSION);
 </script>
 </body>
