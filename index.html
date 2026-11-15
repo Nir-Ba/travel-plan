@@ -64,6 +64,22 @@
   .empty { color: var(--muted); text-align: center; padding: 20px 0; }
   .actions { position: sticky; bottom: 0; padding-top: 10px; background: linear-gradient(transparent, var(--bg) 30%); }
   .status { font-size: 14px; color: var(--muted); min-height: 20px; margin: 6px 2px; }
+  .seg { display: flex; background: var(--line); border-radius: 12px; padding: 3px; gap: 3px; }
+  .seg button { flex: 1; background: transparent; padding: 9px 8px; font-size: 15px; }
+  .seg button.on { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  li.leg { margin: -4px 0 10px 24px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--card); border-radius: 0 12px 12px 0; }
+  .leghead { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+  .opt { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .opt:first-of-type { border-top: 0; }
+  .optname { font-weight: 600; }
+  .price { font-weight: 600; text-align: right; font-size: 15px; white-space: pre; }
+  li.place.compact { align-items: center; }
+  li.place.compact .ctrls { flex-direction: row; }
+  .badge { font-size: 11px; font-weight: 700; margin-left: 6px; padding: 2px 6px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); vertical-align: 2px; }
+  .links { margin-top: 6px; }
+  .links a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .fine { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  [hidden] { display: none !important; }
   dialog { border: 0; border-radius: 16px; background: var(--card); color: var(--ink); padding: 20px; width: min(92vw, 380px); }
   dialog::backdrop { background: rgba(0,0,0,.45); }
   dialog h2 { margin: 0 0 12px; font-size: 20px; }
@@ -74,13 +90,18 @@
 <main>
   <h1>Travel Plan</h1>
 
-  <div class="section">
+  <div class="seg section" role="group" aria-label="Trip type">
+    <button id="segCity" class="on">Inside a city</button>
+    <button id="segTrip">Between cities</button>
+  </div>
+
+  <div class="section" id="citySec">
     <label class="small" for="city">City</label>
     <input id="city" placeholder="e.g. Tokyo" autocomplete="off">
   </div>
 
   <div class="section">
-    <label class="small" for="newPlace">Add places (one per line)</label>
+    <label class="small" for="newPlace" id="addLbl">Add places (one per line)</label>
     <textarea id="newPlace" rows="2" placeholder="Ueno Park&#10;Senso-ji"></textarea>
     <div class="row" style="margin-top:8px">
       <button id="addBtn">Add</button>
@@ -115,14 +136,31 @@
 </dialog>
 
 <script>
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 const KEY = "travelplan.v1";
 const $ = (id) => document.getElementById(id);
 
-let state = { city: "", places: [] }; // place: { name, desc, url }
+// mode "city": places inside one city. mode "trip": travel between cities.
+let state = { mode: "city", city: "", places: [], cities: [], legs: {} };
+const isTrip = () => state.mode === "trip";
+const list = () => (isTrip() ? state.cities : state.places);
 
 function load() {
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.places)) state = s; } catch (e) {}
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && Array.isArray(s.places)) state = Object.assign(state, s);
+  } catch (e) {}
+  if (!Array.isArray(state.cities)) state.cities = [];
+  if (!state.legs) state.legs = {};
+}
+function applyMode() {
+  $("segCity").classList.toggle("on", !isTrip());
+  $("segTrip").classList.toggle("on", isTrip());
+  $("citySec").hidden = isTrip();
+  $("addLbl").textContent = isTrip() ? "Add cities (one per line)" : "Add places (one per line)";
+  $("newPlace").placeholder = isTrip() ? "Tokyo\nKyoto\nOsaka" : "Ueno Park\nSenso-ji";
+  setStatus("");
+  render();
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
@@ -139,16 +177,16 @@ function timeTag(i, n) {
 function render() {
   const ol = $("list");
   ol.innerHTML = "";
-  const n = state.places.length;
-  if (!n) { ol.innerHTML = '<li class="empty">No places yet.</li>'; return; }
-  state.places.forEach((p, i) => {
+  const n = list().length;
+  if (!n) { ol.innerHTML = `<li class="empty">No ${isTrip() ? "cities" : "places"} yet.</li>`; return; }
+  list().forEach((p, i) => {
     const li = document.createElement("li");
-    li.className = "place";
+    li.className = isTrip() ? "place compact" : "place";
     const num = document.createElement("div"); num.className = "num"; num.textContent = i + 1;
     const body = document.createElement("div"); body.className = "body";
     const name = document.createElement("div"); name.className = "name"; name.textContent = p.name;
     body.appendChild(name);
-    if (p.desc !== undefined) {
+    if (!isTrip() && p.desc !== undefined) {
       const tag = timeTag(i, n);
       const t = document.createElement("div"); t.className = "tag " + tag; t.textContent = tag;
       const d = document.createElement("div"); d.className = "desc"; d.textContent = p.desc || "No description found.";
@@ -161,18 +199,63 @@ function render() {
     const c = document.createElement("div"); c.className = "ctrls";
     const up = btn("▲", "Move up", () => move(i, -1)); up.disabled = i === 0;
     const dn = btn("▼", "Move down", () => move(i, 1)); dn.disabled = i === n - 1;
-    const del = btn("✕", "Remove", () => { state.places.splice(i, 1); save(); render(); }); del.className = "del";
+    const del = btn("✕", "Remove", () => { list().splice(i, 1); save(); render(); }); del.className = "del";
     c.append(up, dn, del);
     li.append(num, body, c);
     ol.appendChild(li);
+    if (isTrip() && i < n - 1) {
+      const leg = state.legs[legKey(p, list()[i + 1])];
+      if (leg) ol.appendChild(renderLeg(leg));
+    }
   });
 }
+
+// ---- Between cities: one card per leg ----
+const ICON = { metro: "🚇", train: "🚆", hsr: "🚄", bus: "🚌" };
+function renderLeg(leg) {
+  const li = document.createElement("li");
+  li.className = "leg";
+  const h = document.createElement("div"); h.className = "leghead";
+  h.textContent = `${leg.from} → ${leg.to}` + (leg.km ? ` · about ${Math.round(leg.km)} km` : "");
+  li.appendChild(h);
+  if (leg.error) {
+    const e = document.createElement("div"); e.className = "desc"; e.textContent = leg.error; li.appendChild(e);
+  }
+  const opts = leg.options || [];
+  const fastest = opts.length ? Math.min(...opts.map(o => o.min)) : 0;
+  const cheapest = opts.length ? Math.min(...opts.map(o => o.usd)) : 0;
+  opts.forEach(o => {
+    const r = document.createElement("div"); r.className = "opt";
+    const l = document.createElement("div"); l.className = "optl";
+    const t = document.createElement("div"); t.className = "optname"; t.textContent = `${ICON[o.kind]} ${o.label}`;
+    if (o.min === fastest) t.appendChild(badge("Fastest"));
+    if (o.usd === cheapest) t.appendChild(badge("Cheapest"));
+    const s = document.createElement("div"); s.className = "desc"; s.textContent = fmtTime(o.min);
+    l.append(t, s);
+    const p = document.createElement("div"); p.className = "price"; p.textContent = fmtPrice(o.usd, leg.cur);
+    r.append(l, p);
+    li.appendChild(r);
+  });
+  if (leg.note) { const nt = document.createElement("div"); nt.className = "desc"; nt.textContent = leg.note; li.appendChild(nt); }
+  const links = document.createElement("div"); links.className = "desc links";
+  links.append("Real prices: ");
+  links.appendChild(extLink("Rome2rio", rome2rioUrl(leg.from, leg.to)));
+  links.append(" · ");
+  links.appendChild(extLink("Google Maps", googleTransitUrl(leg.from, leg.to)));
+  li.appendChild(links);
+  const fine = document.createElement("div"); fine.className = "fine";
+  fine.textContent = "Rough estimate per person, one way, from distance. Real prices can differ a lot.";
+  li.appendChild(fine);
+  return li;
+}
+function badge(t) { const b = document.createElement("span"); b.className = "badge"; b.textContent = t; return b; }
+function extLink(t, href) { const a = document.createElement("a"); a.textContent = t; a.href = href; a.target = "_blank"; a.rel = "noopener"; return a; }
 function btn(txt, label, fn) {
   const b = document.createElement("button"); b.textContent = txt; b.setAttribute("aria-label", label); b.onclick = fn; return b;
 }
 function move(i, d) {
-  const j = i + d; if (j < 0 || j >= state.places.length) return;
-  [state.places[i], state.places[j]] = [state.places[j], state.places[i]];
+  const j = i + d; if (j < 0 || j >= list().length) return;
+  [list()[i], list()[j]] = [list()[j], list()[i]];
   save(); render();
 }
 
@@ -227,6 +310,7 @@ function km(a, b) {
 }
 
 async function start() {
+  if (isTrip()) return startTrip();
   if (!state.places.length) { setStatus("Add places first."); return; }
   $("startBtn").disabled = true;
   // Only look up new places, or all of them if the city changed.
@@ -244,8 +328,156 @@ async function start() {
   $("startBtn").disabled = false;
 }
 
+// ---- Between cities: rough options and prices ----
+// Price level per country. Each mode: [base fare, price per km] in USD, per person.
+const TIER_OF = {
+  JP: "jp", KR: "kr", TW: "kr", CN: "cn",
+  FR: "weu", DE: "weu", IT: "weu", ES: "weu", NL: "weu", BE: "weu", AT: "weu", PT: "weu", DK: "weu",
+  SE: "weu", FI: "weu", IE: "weu", LU: "weu",
+  GB: "hi", CH: "hi", NO: "hi", IS: "hi",
+  US: "na", CA: "na", AU: "na", NZ: "na",
+  PL: "eeu", CZ: "eeu", HU: "eeu", SK: "eeu", SI: "eeu", HR: "eeu", RO: "eeu", BG: "eeu", GR: "eeu",
+  TR: "eeu", RS: "eeu", EE: "eeu", LV: "eeu", LT: "eeu",
+  IL: "il", AE: "il",
+  TH: "low", VN: "low", IN: "low", ID: "low", MY: "low", PH: "low", KH: "low", LA: "low", NP: "low",
+  LK: "low", EG: "low", MA: "low", PE: "low", BO: "low", CO: "low", MX: "low",
+};
+const PRICES = {
+  jp:  { metro: [1, 0.05],   train: [0, 0.11], hsr: [3, 0.20], bus: [5, 0.09] },
+  kr:  { metro: [1, 0.05],   train: [2, 0.07], hsr: [3, 0.10], bus: [3, 0.06] },
+  cn:  { metro: [0.5, 0.04], train: [1, 0.03], hsr: [1, 0.06], bus: [2, 0.05] },
+  weu: { metro: [2, 0.10],   train: [5, 0.13], hsr: [10, 0.15], bus: [5, 0.05] },
+  hi:  { metro: [3, 0.15],   train: [6, 0.25], hsr: [10, 0.25], bus: [6, 0.07] },
+  na:  { metro: [2.5, 0.10], train: [10, 0.18], hsr: [15, 0.25], bus: [10, 0.08] },
+  eeu: { metro: [1, 0.05],   train: [2, 0.05], hsr: [3, 0.08], bus: [2, 0.045] },
+  il:  { metro: [1.5, 0.06], train: [2, 0.07], hsr: [3, 0.09], bus: [2, 0.06] },
+  low: { metro: [0.5, 0.03], train: [1, 0.02], hsr: [2, 0.05], bus: [1, 0.025] },
+  mid: { metro: [1, 0.06],   train: [3, 0.08], hsr: [5, 0.10], bus: [3, 0.05] },
+};
+const HSR = new Set(["JP", "CN", "KR", "TW", "FR", "ES", "IT", "DE", "BE", "NL", "AT", "TR", "SA", "MA"]);
+const CUR_OF = {
+  JP: "JPY", KR: "KRW", CN: "CNY", GB: "GBP", CH: "CHF", NO: "NOK", SE: "SEK", DK: "DKK", IS: "ISK",
+  US: "USD", CA: "CAD", AU: "AUD", NZ: "NZD", PL: "PLN", CZ: "CZK", HU: "HUF", RO: "RON", BG: "BGN",
+  TR: "TRY", IL: "ILS", TH: "THB", IN: "INR", ID: "IDR", MY: "MYR", PH: "PHP", SG: "SGD", ZA: "ZAR",
+  MX: "MXN", BR: "BRL", HK: "HKD",
+  FR: "EUR", DE: "EUR", IT: "EUR", ES: "EUR", NL: "EUR", BE: "EUR", AT: "EUR", PT: "EUR", FI: "EUR",
+  IE: "EUR", LU: "EUR", GR: "EUR", SK: "EUR", SI: "EUR", HR: "EUR", EE: "EUR", LV: "EUR", LT: "EUR",
+};
+Object.assign(CUR_OF, { TW: "TWD", VN: "VND", KH: "USD", LA: "LAK", NP: "NPR", LK: "LKR", EG: "EGP",
+  MA: "MAD", PE: "PEN", BO: "BOB", CO: "COP", AE: "AED", RS: "RSD", AR: "ARS", CL: "CLP" });
+let rates = null; // USD -> other currencies, from open.er-api.com (free, no key)
+async function loadRates() {
+  if (rates) return rates;
+  try {
+    const r = await fetch("https://open.er-api.com/v6/latest/USD");
+    if (r.ok) rates = Object.assign({ USD: 1 }, (await r.json()).rates);
+  } catch (e) { console.warn("rates failed", e); }
+  return rates;
+}
+
+async function cityGeo(name) {
+  // Prefer real places (city, town). Fall back to any match.
+  for (const extra of ["&osm_tag=place", ""]) {
+    try {
+      const r = await fetch("https://photon.komoot.io/api/?limit=1&q=" + encodeURIComponent(name) + extra);
+      if (!r.ok) continue;
+      const f = (await r.json()).features?.[0];
+      if (f) return { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], cc: (f.properties.countrycode || "").toUpperCase() };
+    } catch (e) { console.warn("cityGeo failed", name, e); }
+  }
+  return null;
+}
+
+function legKey(a, b) { return `${a.name}|${b.name}`; }
+
+function estimateLeg(a, b) {
+  const d = km(a, b); // straight line
+  const tierA = TIER_OF[a.cc] || "mid", tierB = TIER_OF[b.cc] || "mid";
+  const price = (kind, dist) => {
+    const pa = PRICES[tierA][kind], pb = PRICES[tierB][kind];
+    return ((pa[0] + pb[0]) / 2) + dist * ((pa[1] + pb[1]) / 2);
+  };
+  const rail = d * 1.2, road = d * 1.25;
+  const cur = CUR_OF[a.cc] || "USD";
+  if (d > 2000) {
+    return { from: a.name, to: b.name, km: d, options: [], cur,
+      note: "Too far for metro, train or bus. A flight is the normal option." };
+  }
+  const opts = [];
+  if (d < 40) opts.push({ kind: "metro", label: "Metro / commuter rail", min: 10 + rail / 40 * 60, usd: price("metro", rail) });
+  if (d >= 15) {
+    const fast = d >= 150 && HSR.has(a.cc) && HSR.has(b.cc);
+    if (fast) opts.push({ kind: "hsr", label: "High-speed train", min: 30 + rail / 200 * 60, usd: price("hsr", rail) });
+    opts.push({ kind: "train", label: fast ? "Regular train" : "Train", min: 20 + rail / 70 * 60, usd: price("train", rail) });
+  }
+  opts.push({ kind: "bus", label: "Bus", min: 15 + road / 60 * 60, usd: price("bus", road) });
+  opts.sort((x, y) => x.min - y.min);
+  let note = "";
+  if (d > 800) note = "Long distance: a flight is often faster and can be cheaper.";
+  if (a.cc && b.cc && a.cc !== b.cc) note = (note ? note + " " : "") + "Crosses a border: check that a direct route exists.";
+  return { from: a.name, to: b.name, km: d, options: opts, note, cur };
+}
+
+async function startTrip() {
+  const cs = state.cities;
+  if (cs.length < 2) { setStatus("Add at least 2 cities."); return; }
+  $("startBtn").disabled = true;
+  await loadRates();
+  let i = 0, missing = [];
+  for (const c of cs) {
+    setStatus(`Finding cities ${++i}/${cs.length}…`);
+    if (typeof c.lat !== "number" || !c.cc) {
+      const g = await cityGeo(c.name);
+      if (g) Object.assign(c, g); else missing.push(c.name);
+    }
+  }
+  state.legs = {};
+  for (let k = 0; k < cs.length - 1; k++) {
+    const a = cs[k], b = cs[k + 1];
+    state.legs[legKey(a, b)] = (typeof a.lat === "number" && typeof b.lat === "number")
+      ? estimateLeg(a, b)
+      : { from: a.name, to: b.name, options: [], error: "City not found. Check the spelling." };
+  }
+  save(); render();
+  setStatus(missing.length ? `Done. Not found: ${missing.join(", ")}.` : "Done.");
+  $("startBtn").disabled = false;
+}
+
+function fmtTime(min) {
+  const m = Math.round(min / 5) * 5, h = Math.floor(m / 60), r = m % 60;
+  return "≈ " + (h ? `${h} h` : "") + (h && r ? " " : "") + (r || !h ? `${r} min` : "");
+}
+function round2(x) { // 2 significant digits
+  if (x <= 0) return 0;
+  const p = Math.pow(10, Math.floor(Math.log10(x)) - 1);
+  return Math.round(x / p) * p;
+}
+function money(x, cur) {
+  try { return new Intl.NumberFormat("en", { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(x); }
+  catch (e) { return `${Math.round(x)} ${cur}`; }
+}
+function fmtPrice(usd, cur) {
+  const lo = round2(Math.max(usd * 0.8, 1)), hi = round2(Math.max(usd * 1.25, 1));
+  const usdTxt = lo === hi ? money(lo, "USD") : `${money(lo, "USD")}–${money(hi, "USD").replace(/^\D+/, "")}`;
+  if (!rates || cur === "USD" || !rates[cur]) return usdTxt;
+  const f = rates[cur];
+  const llo = round2(lo * f), lhi = round2(hi * f);
+  return `${money(llo, cur)}–${money(lhi, cur).replace(/^[^\d]+/, "")}\n${usdTxt}`;
+}
+function rome2rioUrl(a, b) {
+  const s = (x) => encodeURIComponent(x.trim().replace(/\s+/g, "-"));
+  return `https://www.rome2rio.com/map/${s(a)}/${s(b)}`;
+}
+function googleTransitUrl(a, b) {
+  const u = new URL("https://www.google.com/maps/dir/");
+  u.searchParams.set("api", "1"); u.searchParams.set("origin", a); u.searchParams.set("destination", b);
+  u.searchParams.set("travelmode", "transit");
+  return u.toString();
+}
+
 // ---- Map links ----
 function stops() {
+  if (isTrip()) return state.cities.map(c => c.name);
   return state.places.map(p => state.city ? `${p.name}, ${state.city}` : p.name);
 }
 function googleUrl(mode) {
@@ -267,7 +499,7 @@ function appleUrl(mode) {
   u.searchParams.set("source", s[0]);
   u.searchParams.set("destination", s[s.length - 1]);
   if (mode !== "transit") {
-    state.places.slice(1, -1).forEach((p, k) => {
+    list().slice(1, -1).forEach((p, k) => {
       const hasLL = typeof p.lat === "number" && typeof p.lon === "number";
       u.searchParams.append("waypoint", hasLL ? `${p.lat.toFixed(6)},${p.lon.toFixed(6)}` : s[k + 1]);
     });
@@ -311,12 +543,12 @@ async function geocode(place, city) {
 }
 // Fill missing GPS points for the middle stops (Apple Maps needs them).
 async function fillCoords() {
-  const need = state.places.slice(1, -1).filter(p => typeof p.lat !== "number");
+  const need = list().slice(1, -1).filter(p => typeof p.lat !== "number");
   let i = 0, missing = 0;
   for (const p of need) {
     setStatus(`Finding map points ${++i}/${need.length}…`);
     try {
-      const g = await geocode(p.name, state.city);
+      const g = await geocode(p.name, isTrip() ? "" : state.city);
       if (g) Object.assign(p, g); else missing++;
     } catch (e) { missing++; console.warn("geocode failed", p.name, e); }
     if (i < need.length) await new Promise(r => setTimeout(r, 400));
@@ -330,16 +562,16 @@ $("city").addEventListener("input", (e) => { state.city = e.target.value.trim();
 $("addBtn").onclick = () => {
   const lines = $("newPlace").value.split("\n").map(s => s.trim()).filter(Boolean);
   if (!lines.length) return;
-  lines.forEach(name => state.places.push({ name }));
+  lines.forEach(name => list().push({ name }));
   $("newPlace").value = ""; save(); render(); setStatus("");
 };
 $("clearBtn").onclick = () => {
-  if (state.places.length && confirm("Remove all places?")) { state.places = []; save(); render(); }
+  if (list().length && confirm("Remove all?")) { list().length = 0; state.legs = {}; save(); render(); }
 };
 $("startBtn").onclick = start;
 $("mapBtn").onclick = () => {
-  if (state.places.length < 2) { setStatus("Add at least 2 places."); return; }
-  if (state.places.length > 11) setStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
+  if (list().length < 2) { setStatus("Add at least 2 places."); return; }
+  if (list().length > 11) setStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
   $("mapDlg").showModal();
 };
 $("gBtn").onclick = () => { location.href = googleUrl($("mode").value); $("mapDlg").close(); };
@@ -352,9 +584,12 @@ $("aBtn").onclick = async () => {
 };
 $("cancelBtn").onclick = () => $("mapDlg").close();
 
+$("segCity").onclick = () => { state.mode = "city"; save(); applyMode(); };
+$("segTrip").onclick = () => { state.mode = "trip"; save(); applyMode(); };
+
 load();
 $("city").value = state.city || "";
-render();
+applyMode();
 console.log("Travel Plan", APP_VERSION);
 </script>
 </body>
