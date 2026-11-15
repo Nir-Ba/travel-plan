@@ -115,7 +115,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 const KEY = "travelplan.v1";
 const $ = (id) => document.getElementById(id);
 
@@ -196,28 +196,48 @@ async function wikiLookup(place, city) {
   const sr = await fetch(sUrl).then(r => r.json());
   // Take the first result whose title shares a real word with the place name.
   const words = norm(place).split(" ").filter(w => w.length > 2 && !["the", "and"].includes(w));
-  const hit = (sr?.query?.search || []).find(h => {
+  const hits = (sr?.query?.search || []).filter(h => {
     const t = norm(h.title).split(" ");
     return words.some(w => t.includes(w));
   });
-  if (!hit) return { desc: "", url: "" };
-  const sum = await fetch("https://en.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(hit.title.replace(/ /g, "_")))
-    .then(r => r.ok ? r.json() : null);
-  if (!sum) return { desc: "", url: "" };
-  const out = { desc: shortText(sum.extract, sum.description), url: sum?.content_urls?.mobile?.page || "" };
-  if (sum.coordinates && typeof sum.coordinates.lat === "number") { out.lat = sum.coordinates.lat; out.lon = sum.coordinates.lon; }
-  return out;
+  const center = city ? await getCityCenter(city) : null;
+  for (const hit of hits) {
+    const sum = await fetch("https://en.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(hit.title.replace(/ /g, "_")))
+      .then(r => r.ok ? r.json() : null);
+    if (!sum) continue;
+    const ll = sum.coordinates && typeof sum.coordinates.lat === "number" ? { lat: sum.coordinates.lat, lon: sum.coordinates.lon } : null;
+    // Stay in the city: near the city centre, or (no GPS point) the text names the city.
+    if (city) {
+      if (ll && center) { if (km(ll, center) > MAX_KM) continue; }
+      else if (!norm(`${sum.extract || ""} ${sum.description || ""}`).includes(norm(city))) continue;
+    }
+    const out = { desc: shortText(sum.extract, sum.description), url: sum?.content_urls?.mobile?.page || "" };
+    if (ll) Object.assign(out, ll);
+    return out;
+  }
+  return { desc: "", url: "" };
+}
+
+const MAX_KM = 50;
+function km(a, b) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 async function start() {
   if (!state.places.length) { setStatus("Add places first."); return; }
   $("startBtn").disabled = true;
+  // Only look up new places, or all of them if the city changed.
+  const todo = state.places.filter(p => p.lookedUpFor !== state.city || p.desc === undefined);
   let done = 0, failed = 0;
-  setStatus(`Looking up 0/${state.places.length}…`);
-  await Promise.all(state.places.map(async (p) => {
-    try { Object.assign(p, await wikiLookup(p.name, state.city)); }
+  setStatus(`Looking up 0/${todo.length}…`);
+  await Promise.all(todo.map(async (p) => {
+    delete p.lat; delete p.lon;
+    try { Object.assign(p, await wikiLookup(p.name, state.city)); p.lookedUpFor = state.city; }
     catch (e) { failed++; p.desc = ""; p.url = ""; console.warn("lookup failed", p.name, e); }
-    done++; setStatus(`Looking up ${done}/${state.places.length}…`); render();
+    done++; setStatus(`Looking up ${done}/${todo.length}…`); render();
   }));
   save(); render();
   setStatus(failed ? `Done. ${failed} lookup(s) failed (check internet).` : "Done.");
@@ -273,14 +293,21 @@ async function nominatim(q) {
   return j[0] ? { lat: parseFloat(j[0].lat), lon: parseFloat(j[0].lon) } : null;
 }
 let cityBias = null, cityBiasFor = null;
-async function geocode(place, city) {
-  if (city && cityBiasFor !== city) {
+async function getCityCenter(city) {
+  if (cityBiasFor !== city) {
     cityBiasFor = city;
     try { cityBias = await photon(city, null); } catch (e) { cityBias = null; }
+    if (!cityBias) cityBiasFor = null; // try again next time
   }
+  return cityBias;
+}
+async function geocode(place, city) {
+  const center = city ? await getCityCenter(city) : null;
+  const ok = (g) => g && (!center || km(g, center) <= MAX_KM);
   const q = city ? `${place}, ${city}` : place;
-  try { const g = await photon(q, cityBias); if (g) return g; } catch (e) { console.warn("photon failed", q, e); }
-  return nominatim(q);
+  try { const g = await photon(q, center); if (ok(g)) return g; } catch (e) { console.warn("photon failed", q, e); }
+  const g = await nominatim(q);
+  return ok(g) ? g : null;
 }
 // Fill missing GPS points for the middle stops (Apple Maps needs them).
 async function fillCoords() {
