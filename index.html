@@ -141,7 +141,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.5.0";
 const KEY = "travelplan.v1";
 const $ = (id) => document.getElementById(id);
 
@@ -548,7 +548,7 @@ async function geocode(place, city) {
 }
 // Fill missing GPS points for the middle stops (Apple Maps needs them).
 async function fillCoords() {
-  const need = list().slice(1, -1).filter(p => typeof p.lat !== "number");
+  const need = routeItems().slice(1, -1).filter(p => typeof p.lat !== "number");
   let i = 0, missing = 0;
   for (const p of need) {
     setStatus(`Finding map points ${++i}/${need.length}…`);
@@ -582,39 +582,57 @@ $("mapBtn").onclick = () => {
   walk.hidden = walk.disabled = isTrip();
   if (isTrip() && $("mode").value === "walking") $("mode").value = "transit";
   if (!isTrip() && $("mode").value === "transit") $("mode").value = "walking";
-  // Between 3+ cities: pick one leg (1→2, 2→3, …) or the whole trip.
-  const cs = state.cities, sel = $("legSel");
-  $("legBox").hidden = !(isTrip() && cs.length > 2);
+  // 3+ stops: pick one leg (1→2, 2→3, …) or the whole route.
+  const items = list(), sel = $("legSel");
+  $("legBox").hidden = items.length <= 2;
   if (!$("legBox").hidden) {
     sel.innerHTML = "";
-    sel.add(new Option(`Whole trip: ${cs.map(c => c.name).join(" → ")}`, "all"));
-    for (let k = 0; k < cs.length - 1; k++) sel.add(new Option(`${k + 1}→${k + 2}: ${cs[k].name} → ${cs[k + 1].name}`, String(k)));
-    sel.value = $("mode").value === "transit" ? "0" : "all";
-    syncLeg();
+    sel.add(new Option(`Whole route: ${items.map(c => c.name).join(" → ")}`, "all"));
+    for (let k = 0; k < items.length - 1; k++) sel.add(new Option(`${k + 1}→${k + 2}: ${items[k].name} → ${items[k + 1].name}`, String(k)));
+    // After a one-leg map, offer the next leg.
+    const next = state.lastLeg && state.lastLeg.mode === state.mode ? state.lastLeg.k + 1 : -1;
+    sel.value = next >= 0 && next < items.length - 1 ? String(next) : "all";
   }
+  syncLeg();
   $("mapDlg").showModal();
 };
-// Transit maps can't stop in the middle, so "Whole trip" is for driving only.
+// Middle stops work only for: Google walking/driving, Apple driving.
+// Transit (both) and Apple walking go one leg at a time.
 function syncLeg() {
-  if ($("legBox").hidden) return;
-  const transit = $("mode").value === "transit";
-  const all = $("legSel").options[0];
-  all.disabled = transit;
-  if (transit && $("legSel").value === "all") $("legSel").value = "0";
-  $("legHint").textContent = transit ? "Transit opens one leg at a time. Come back for the next leg." : "";
+  const aBtn = $("aBtn");
+  aBtn.disabled = false; aBtn.textContent = "Apple Maps";
+  if ($("legBox").hidden) { $("legHint").textContent = ""; return; }
+  const mode = $("mode").value, sel = $("legSel");
+  const all = sel.options[0];
+  all.disabled = mode === "transit";
+  if (all.disabled && sel.value === "all") sel.value = "0";
+  let hint = "";
+  if (mode === "transit") hint = "Transit opens one leg at a time. Come back for the next leg.";
+  else if (mode === "walking" && sel.value === "all") {
+    hint = "Apple Maps walking can't stop in the middle. Pick one leg, or use Google Maps.";
+    aBtn.disabled = true; aBtn.textContent = "Apple Maps (pick one leg)";
+  } else if (mode === "walking") hint = "Apple Maps: one leg at a time. Come back for the next leg.";
+  $("legHint").textContent = hint;
 }
 $("mode").addEventListener("change", syncLeg);
+$("legSel").addEventListener("change", syncLeg);
 // The stops to send to the map: the whole list, or one leg.
 function routeItems() {
-  if (isTrip() && !$("legBox").hidden && $("legSel").value !== "all") {
+  if (!$("legBox").hidden && $("legSel").value !== "all") {
     const k = +$("legSel").value;
-    return state.cities.slice(k, k + 2);
+    return list().slice(k, k + 2);
   }
   return list();
 }
-$("gBtn").onclick = () => { location.href = googleUrl($("mode").value); $("mapDlg").close(); };
+function rememberLeg() {
+  const v = $("legBox").hidden ? "all" : $("legSel").value;
+  state.lastLeg = v === "all" ? null : { mode: state.mode, k: +v };
+  save();
+}
+$("gBtn").onclick = () => { rememberLeg(); location.href = googleUrl($("mode").value); $("mapDlg").close(); };
 $("aBtn").onclick = async () => {
   const mode = $("mode").value;
+  rememberLeg();
   $("mapDlg").close();
   const missing = mode === "transit" ? 0 : await fillCoords();
   setStatus(missing ? `${missing} stop(s) not found on the map. Apple Maps may skip them.` : "");
