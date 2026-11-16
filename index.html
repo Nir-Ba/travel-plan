@@ -53,7 +53,7 @@
     display: grid; place-items: center; font-weight: 700; font-size: 14px; margin-top: 2px;
   }
   .body { flex: 1; min-width: 0; }
-  .name { font-weight: 600; font-size: 17px; word-wrap: break-word; }
+  .name { display: block; font-weight: 600; font-size: 17px; word-wrap: break-word; color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
   .tag { font-size: 12px; font-weight: 700; letter-spacing: .08em; margin-top: 2px; }
   .tag.MORNING { color: var(--tag-m); } .tag.AFTERNOON { color: var(--tag-a); } .tag.EVENING { color: var(--tag-e); }
   .desc { color: var(--muted); font-size: 15px; margin-top: 2px; }
@@ -141,7 +141,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.7.0";
 const KEY = "travelplan.v1";
 const $ = (id) => document.getElementById(id);
 
@@ -189,7 +189,8 @@ function render() {
     li.className = isTrip() ? "place compact" : "place";
     const num = document.createElement("div"); num.className = "num"; num.textContent = i + 1;
     const body = document.createElement("div"); body.className = "body";
-    const name = document.createElement("div"); name.className = "name"; name.textContent = p.name;
+    const name = document.createElement("a"); name.className = "name"; name.textContent = p.name;
+    name.href = placeUrl(p); name.target = "_blank"; name.rel = "noopener";
     body.appendChild(name);
     if (!isTrip() && p.desc !== undefined) {
       const tag = timeTag(i, n);
@@ -216,6 +217,11 @@ function render() {
 }
 
 // ---- Between cities: one card per leg ----
+// Open one place in Google Maps (search by name, plus city when inside a city).
+function placeUrl(p) {
+  const q = !isTrip() && state.city ? `${p.name}, ${state.city}` : p.name;
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+}
 const ICON = { metro: "🚇", train: "🚆", hsr: "🚄", bus: "🚌", walk: "🚶", pt: "🚇" };
 function renderLeg(leg) {
   const li = document.createElement("li");
@@ -254,7 +260,8 @@ function renderLeg(leg) {
   links.appendChild(extLink("Google Maps", googleTransitUrl(fq, tq)));
   li.appendChild(links);
   const fine = document.createElement("div"); fine.className = "fine";
-  fine.textContent = "Rough estimate per person, one way, from distance. Real prices can differ a lot.";
+  fine.textContent = "Rough estimate per person, one way, from distance. Real prices can differ a lot."
+    + (leg.city ? " Metro only if the city has one." : "");
   li.appendChild(fine);
   return li;
 }
@@ -407,7 +414,9 @@ function estimateCityLeg(a, b, cc) {
   const tier = TIER_OF[cc] || "mid", [base, perKm] = PRICES[tier].metro;
   const opts = [{ kind: "walk", label: "Walk", min: street / 4.5 * 60, usd: 0 }];
   // Under ~700 m, public transport is not worth it.
-  if (d >= 0.7) opts.push({ kind: "pt", label: "Public transport (metro / bus)", min: 12 + street / 22 * 60, usd: base + perKm * street });
+  // Metro / subway: walk to station + wait, fast between stations. Bus: short wait, slow in traffic.
+  if (d >= 1) opts.push({ kind: "metro", label: "Metro / subway", min: 10 + street / 30 * 60, usd: base + perKm * street });
+  if (d >= 0.7) opts.push({ kind: "bus", label: "Bus", min: 7 + street / 15 * 60, usd: (base + perKm * street) * 0.9 });
   opts.sort((x, y) => x.min - y.min);
   return {
     city: true, from: a.name, to: b.name, km: d, options: opts, cur: CUR_OF[cc] || "USD",
