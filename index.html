@@ -85,28 +85,79 @@
   dialog h2 { margin: 0 0 12px; font-size: 20px; }
   dialog .stack { display: flex; flex-direction: column; gap: 10px; }
   .ctrls button.fav.on { color: #e0a400; }
-  #favList { list-style: none; margin: 0; padding: 0; max-height: 55vh; overflow-y: auto; }
-  #favList li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
-  #favList li:first-child { border-top: 0; }
-  #favList .fname { flex: 1; font-weight: 600; }
-  #favList .fcity { font-size: 12px; font-weight: 500; color: var(--muted); display: block; }
-  #favList button { padding: 6px 10px; font-size: 14px; }
-  #favList button.del { color: var(--danger); }
+  /* Home: one square per city */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .tile { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 10px; text-align: center; }
+  .tile .flag { font-size: 40px; line-height: 1; }
+  .tile .tname { font-size: 17px; font-weight: 700; word-break: break-word; }
+  .tile .tcount { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .tile.add { border-style: dashed; background: transparent; color: var(--muted); }
+  /* City page */
+  .topbar { display: flex; justify-content: space-between; align-items: center; }
+  button.back { background: transparent; color: var(--accent); padding: 8px 0; }
+  button.small { padding: 8px 10px; font-size: 14px; background: transparent; }
+  button.del { color: var(--danger); }
+  .sug { list-style: none; margin: 4px 0 0; padding: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .sug button { width: 100%; text-align: left; background: transparent; border-radius: 0; padding: 10px 14px; border-top: 1px solid var(--line); }
+  .sug li:first-child button { border-top: 0; }
+  .sug .ssub { display: block; font-size: 13px; color: var(--muted); font-weight: 400; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 6px; scrollbar-width: none; }
+  .chip { flex: 0 0 auto; padding: 7px 12px; font-size: 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); }
+  .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .pickbar { display: flex; gap: 14px; align-items: center; font-size: 14px; color: var(--muted); margin: 2px 2px 8px; }
+  button.link { background: transparent; padding: 4px 0; color: var(--accent); font-size: 14px; }
+  #favPlaces { list-style: none; padding: 0; margin: 0; }
+  li.fplace { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; }
+  li.fplace input[type=checkbox] { width: 22px; height: 22px; flex: 0 0 22px; accent-color: var(--accent); }
+  .catsel { width: auto; font-size: 13px; padding: 4px 8px; margin-top: 6px; border-radius: 8px; }
+  li.fplace button.del { padding: 6px 10px; background: transparent; }
 </style>
 </head>
 <body>
 <main>
+<section id="homeView">
   <h1>Travel Plan <span id="ver" style="font-size:13px;font-weight:500;color:var(--muted);letter-spacing:0"></span></h1>
-
-  <div class="seg section" role="group" aria-label="Trip type">
-    <button id="segCity" class="on">Inside a city</button>
-    <button id="segTrip">Between cities</button>
+  <div class="grid" id="cityGrid"></div>
+  <div class="section" style="margin-top:16px">
+    <button id="tripBtn" style="width:100%">🚆 Plan a trip between cities</button>
   </div>
+</section>
 
-  <div class="section" id="citySec">
-    <label class="small" for="city">City</label>
-    <input id="city" placeholder="e.g. Tokyo" autocomplete="off">
+<section id="cityView" hidden>
+  <div class="topbar">
+    <button id="cityBack" class="back">‹ Cities</button>
+    <button id="cityDel" class="small del">Remove city</button>
   </div>
+  <h1 id="cityTitle"></h1>
+  <div class="section">
+    <label class="small" for="newFav">Add a favorite place</label>
+    <input id="newFav" placeholder="Type a place name" autocomplete="off">
+    <ul id="sug" class="sug" hidden></ul>
+    <div class="row" style="margin-top:8px">
+      <select id="newCat" aria-label="Category"></select>
+      <button id="newFavBtn" class="primary">Save</button>
+    </div>
+  </div>
+  <div class="chips" id="catChips" role="group" aria-label="Filter by category"></div>
+  <div class="pickbar">
+    <span id="pickCount"></span>
+    <button id="pickAll" class="link">Choose all shown</button>
+    <button id="pickNone" class="link">Clear</button>
+  </div>
+  <ul id="favPlaces"></ul>
+  <div class="actions">
+    <div class="status" id="cityStatus"></div>
+    <div class="row">
+      <button class="primary" id="gmapBtn">Show on Google Maps</button>
+      <button class="primary" id="routeBtn">Plan route</button>
+    </div>
+  </div>
+</section>
+
+<section id="planView" hidden>
+  <div class="topbar"><button id="planBack" class="back">‹ Back</button></div>
+  <h1 id="planTitle">Route</h1>
 
   <div class="section">
     <label class="small" for="newPlace" id="addLbl">Add places (one per line)</label>
@@ -114,7 +165,6 @@
     <div class="row" style="margin-top:8px">
       <button id="addBtn">Add</button>
       <button id="clearBtn">Clear list</button>
-      <button id="favBtn">★ Favorites</button>
     </div>
   </div>
 
@@ -127,10 +177,11 @@
       <button class="primary" id="mapBtn">To map</button>
     </div>
   </div>
+</section>
 </main>
 
 <dialog id="mapDlg">
-  <h2>Open route in…</h2>
+  <h2>Open in Google Maps</h2>
   <div class="stack">
     <label class="small" for="mode">Travel mode</label>
     <select id="mode">
@@ -143,23 +194,13 @@
       <select id="legSel"></select>
       <div class="fine" id="legHint"></div>
     </div>
-    <button class="primary" id="gBtn">Google Maps</button>
-    <button class="primary" id="aBtn">Apple Maps</button>
+    <button class="primary" id="gBtn">Open Google Maps</button>
     <button id="cancelBtn">Cancel</button>
   </div>
 </dialog>
 
-<dialog id="favDlg">
-  <h2 id="favTitle">Favorite places</h2>
-  <div class="stack">
-    <div class="fine" id="favHint">Tap ☆ on a place to save it here. Tap Add to put it back in your list.</div>
-    <ul id="favList"></ul>
-    <button id="favClose">Close</button>
-  </div>
-</dialog>
-
 <script>
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "2.0.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -178,9 +219,8 @@ function load() {
   if (!state.legs) state.legs = {};
 }
 function applyMode() {
-  $("segCity").classList.toggle("on", !isTrip());
-  $("segTrip").classList.toggle("on", isTrip());
-  $("citySec").hidden = isTrip();
+  $("planTitle").textContent = isTrip() ? "Between cities" : `${flag(cityCC(state.city))} ${state.city || "Route"}`;
+  $("planBack").textContent = isTrip() || !state.city ? "‹ Cities" : `‹ ${state.city}`;
   $("addLbl").textContent = isTrip() ? "Add cities (one per line)" : "Add places (one per line)";
   $("newPlace").placeholder = isTrip() ? "Tokyo\nKyoto\nOsaka" : "Ueno Park\nSenso-ji";
   setStatus("");
@@ -211,38 +251,209 @@ function toggleFav(p) {
   const i = favIndex(p);
   if (i >= 0) { favList().splice(i, 1); setStatus(`Removed "${p.name}" from favorites.`); }
   else {
-    favList().push(isTrip() ? { name: p.name } : { name: p.name, city: state.city });
+    if (isTrip()) cityRec(p.name);
+    else { favs.places.push({ name: p.name, city: state.city, cat: "Other" }); cityRec(state.city); }
     setStatus(`Saved "${p.name}" to favorites.`);
   }
   saveFavs(); render();
 }
-function renderFavs() {
-  const ul = $("favList"); ul.innerHTML = "";
-  $("favTitle").textContent = isTrip() ? "Favorite cities" : "Favorite places";
-  // Places in the current city come first.
-  const items = favList().map((f, i) => ({ f, i }));
-  if (!isTrip()) items.sort((a, b) => (same(b.f.city, state.city) ? 1 : 0) - (same(a.f.city, state.city) ? 1 : 0));
-  if (!items.length) { ul.innerHTML = `<li class="empty">No favorites yet.</li>`; return; }
-  items.forEach(({ f, i }) => {
-    const li = document.createElement("li");
-    const n = document.createElement("span"); n.className = "fname"; n.textContent = f.name;
-    if (!isTrip() && f.city) { const c = document.createElement("span"); c.className = "fcity"; c.textContent = f.city; n.appendChild(c); }
-    const inList = list().some(p => same(p.name, f.name));
-    const add = btn(inList ? "In list" : "Add", "Add to list", () => addFav(f)); add.disabled = inList;
-    const del = btn("✕", "Remove from favorites", () => { favList().splice(i, 1); saveFavs(); renderFavs(); render(); });
+
+// ---- Home page: one square per favorite city ----
+const CATS = ["Restaurant", "Café", "Bar", "Park", "Museum", "Sight", "Shop", "Hotel", "Other"];
+const CAT_ICON = { Restaurant: "🍽️", "Café": "☕", Bar: "🍸", Park: "🌳", Museum: "🏛️", Sight: "📸", Shop: "🛍️", Hotel: "🛏️", Other: "📍" };
+const catOf = (p) => (CATS.includes(p.cat) ? p.cat : "Other");
+// Country code "JP" -> 🇯🇵 (two regional-indicator letters).
+function flag(cc) {
+  return /^[A-Z]{2}$/.test(cc || "") ? String.fromCodePoint(...[...cc].map(c => 0x1F1E6 + c.charCodeAt(0) - 65)) : "🏙️";
+}
+const cityCC = (name) => (favs.cities.find(c => same(c.name, name)) || {}).cc;
+function cityRec(name) {
+  let c = favs.cities.find(c => same(c.name, name));
+  if (!c) { c = { name }; favs.cities.push(c); }
+  return c;
+}
+// Every saved city, plus any city that has saved places.
+function favCities() {
+  favs.places.forEach(p => { if (p.city) cityRec(p.city); });
+  return favs.cities.slice().sort((a, b) => a.name.localeCompare(b.name));
+}
+const flagTried = new Set(); // this session only, so an offline start tries again next time
+async function fillFlags() {
+  const miss = favCities().filter(c => !c.cc && !flagTried.has(c.name));
+  if (!miss.length) return;
+  console.log("fillFlags: looking up", miss.map(c => c.name));
+  for (const c of miss) {
+    flagTried.add(c.name);
+    const g = await cityGeo(c.name);
+    if (g && g.cc) Object.assign(c, { cc: g.cc });
+    else console.warn("fillFlags: no country found for", c.name);
+  }
+  saveFavs();
+  if (view() === "home") renderHome();
+}
+function renderHome() {
+  const g = $("cityGrid"); g.innerHTML = "";
+  favCities().forEach(c => {
+    const n = favs.places.filter(p => same(p.city, c.name)).length;
+    const b = document.createElement("button"); b.className = "tile";
+    for (const [cls, txt] of [["flag", flag(c.cc)], ["tname", c.name], ["tcount", n === 1 ? "1 place" : `${n} places`]]) {
+      const s = document.createElement("span"); s.className = cls; s.textContent = txt; b.appendChild(s);
+    }
+    b.onclick = () => go("city", c.name);
+    g.appendChild(b);
+  });
+  const add = document.createElement("button"); add.className = "tile add";
+  add.innerHTML = `<span class="flag">＋</span><span class="tname">Add city</span>`;
+  add.onclick = () => {
+    const name = (prompt("City name, e.g. Tokyo") || "").trim();
+    if (!name) return;
+    cityRec(name); saveFavs(); go("city", name);
+  };
+  g.appendChild(add);
+  fillFlags();
+}
+
+// ---- City page: favorite places with a category ----
+let curCity = "", catFilter = "All", picked = new Set(), sugPick = null;
+const pkey = (p) => p.name.trim().toLowerCase();
+const cityPlaces = () => favs.places.filter(p => same(p.city, curCity));
+const chosen = () => cityPlaces().filter(p => picked.has(pkey(p)));
+const shownPlaces = () => cityPlaces().filter(p => catFilter === "All" || catOf(p) === catFilter);
+function cityStatus(t) { $("cityStatus").textContent = t; }
+function renderCity() {
+  $("cityTitle").textContent = `${flag(cityCC(curCity))} ${curCity}`;
+  const ps = cityPlaces();
+  const present = CATS.filter(k => ps.some(p => catOf(p) === k));
+  if (catFilter !== "All" && !present.includes(catFilter)) catFilter = "All";
+  const chips = $("catChips"); chips.innerHTML = "";
+  ["All", ...present].forEach(k => {
+    const n = k === "All" ? ps.length : ps.filter(p => catOf(p) === k).length;
+    const b = btn(`${k === "All" ? "" : CAT_ICON[k] + " "}${k} · ${n}`, `Show ${k}`, () => { catFilter = k; renderCity(); });
+    b.className = "chip" + (k === catFilter ? " on" : "");
+    chips.appendChild(b);
+  });
+  chips.hidden = !ps.length;
+  const ul = $("favPlaces"); ul.innerHTML = "";
+  if (!ps.length) ul.innerHTML = `<li class="empty">No places yet. Add one above.</li>`;
+  shownPlaces().forEach(p => {
+    const li = document.createElement("li"); li.className = "fplace";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = picked.has(pkey(p));
+    cb.setAttribute("aria-label", "Choose " + p.name);
+    cb.onchange = () => { cb.checked ? picked.add(pkey(p)) : picked.delete(pkey(p)); syncPick(); };
+    const body = document.createElement("div"); body.className = "body";
+    body.appendChild(extLink(p.name, gSearch(placeQ(p, curCity)))).className = "name";
+    if (p.addr) { const a = document.createElement("div"); a.className = "fine"; a.textContent = p.addr; body.appendChild(a); }
+    const sel = document.createElement("select"); sel.className = "catsel"; sel.setAttribute("aria-label", "Category of " + p.name);
+    CATS.forEach(k => sel.add(new Option(`${CAT_ICON[k]} ${k}`, k)));
+    sel.value = catOf(p);
+    sel.onchange = () => { p.cat = sel.value; saveFavs(); renderCity(); };
+    body.appendChild(sel);
+    const del = btn("✕", "Remove from favorites", () => {
+      if (!confirm(`Remove "${p.name}" from favorites?`)) return;
+      favs.places.splice(favs.places.indexOf(p), 1); picked.delete(pkey(p)); saveFavs(); renderCity();
+    });
     del.className = "del";
-    li.append(n, add, del);
+    li.append(cb, body, del);
     ul.appendChild(li);
   });
+  syncPick();
 }
-function addFav(f) {
-  if (!isTrip() && f.city && !same(f.city, state.city)) {
-    if (state.city && list().length && !confirm(`"${f.name}" is in ${f.city}. Your list is for ${state.city}. Add it anyway?`)) return;
-    if (!list().length || !state.city) { state.city = f.city; $("city").value = f.city; }
+function syncPick() {
+  const n = chosen().length;
+  $("pickCount").textContent = n ? `${n} chosen` : "Tick places to choose them.";
+  $("pickNone").hidden = !n;
+  $("gmapBtn").disabled = !n;
+  $("routeBtn").disabled = n < 2;
+}
+// Search text for a place: name + saved address (a picked branch), else name + city.
+function placeQ(p, city) { return p.addr ? `${p.name}, ${p.addr}` : city ? `${p.name}, ${city}` : p.name; }
+function gSearch(q) { return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q); }
+// One place: a search pin. More: walking directions through all of them.
+function gChosenUrl(ps) {
+  const s = ps.map(p => placeQ(p, curCity));
+  if (s.length === 1) return gSearch(s[0]);
+  const u = new URL("https://www.google.com/maps/dir/");
+  u.searchParams.set("api", "1"); u.searchParams.set("origin", s[0]); u.searchParams.set("destination", s[s.length - 1]);
+  u.searchParams.set("travelmode", "walking");
+  if (s.length > 2) u.searchParams.set("waypoints", s.slice(1, -1).join("|"));
+  return u.toString();
+}
+
+// Suggestions while typing: OpenStreetMap places near the city centre (Photon, free, no key).
+function osmCat(k, v) {
+  if (k === "amenity") return { restaurant: "Restaurant", fast_food: "Restaurant", food_court: "Restaurant", cafe: "Café",
+    ice_cream: "Café", bar: "Bar", pub: "Bar", biergarten: "Bar", nightclub: "Bar", place_of_worship: "Sight", theatre: "Sight" }[v] || "Other";
+  if (k === "leisure") return ["park", "garden", "nature_reserve"].includes(v) ? "Park" : "Other";
+  if (k === "shop") return "Shop";
+  if (k === "tourism") return { museum: "Museum", gallery: "Museum", hotel: "Hotel", hostel: "Hotel", guest_house: "Hotel",
+    apartment: "Hotel", zoo: "Park", information: "Other" }[v] || "Sight";
+  if (k === "historic" || k === "man_made") return "Sight";
+  if (k === "boundary" && v === "national_park") return "Park";
+  return "Other";
+}
+let sugSeq = 0;
+async function suggest(q) {
+  const seq = ++sugSeq;
+  const center = await getCityCenter(curCity);
+  let url = "https://photon.komoot.io/api/?limit=10&lang=en&q=" + encodeURIComponent(q);
+  if (center) url += `&lat=${center.lat}&lon=${center.lon}`;
+  let fs = [];
+  try { const r = await fetch(url); if (r.ok) fs = (await r.json()).features || []; }
+  catch (e) { console.warn("suggest failed", q, e); }
+  if (seq !== sugSeq) return; // a newer search is running
+  const seen = new Set(), out = [];
+  for (const f of fs) {
+    const pr = f.properties, ll = { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+    if (!pr.name || ["city", "country", "state", "county"].includes(pr.type)) continue;
+    if (center && km(ll, center) > MAX_KM) continue; // stay in this city
+    // Chains have many branches: keep each branch, but not exact repeats.
+    const sub = [...new Set([pr.street, pr.district || pr.locality, pr.city].filter(Boolean))].join(", ")
+      || (pr.osm_value || "").replace(/_/g, " ");
+    const k = (pr.name + "|" + sub).toLowerCase(); if (seen.has(k)) continue; seen.add(k);
+    out.push({ name: pr.name, cat: osmCat(pr.osm_key, pr.osm_value), sub, ...ll });
+    if (out.length === 5) break;
   }
-  list().push({ name: f.name });
-  save(); render(); renderFavs();
-  setStatus(`Added "${f.name}".`);
+  showSug(out);
+}
+function showSug(list) {
+  const ul = $("sug"); ul.innerHTML = "";
+  ul.hidden = !list.length;
+  list.forEach(s => {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.textContent = `${CAT_ICON[s.cat]} ${s.name}`;
+    const sub = document.createElement("span"); sub.className = "ssub"; sub.textContent = `${s.cat} · ${s.sub}`;
+    b.appendChild(sub);
+    b.onclick = () => { $("newFav").value = s.name; $("newCat").value = s.cat; sugPick = s; ul.hidden = true; };
+    li.appendChild(b); ul.appendChild(li);
+  });
+}
+function saveNewFav() {
+  const name = $("newFav").value.trim();
+  if (!name) { cityStatus("Type a place name first."); return; }
+  if (cityPlaces().some(p => same(p.name, name))) { cityStatus(`"${name}" is already saved.`); return; }
+  const f = { name, city: curCity, cat: $("newCat").value };
+  if (sugPick && same(sugPick.name, name)) Object.assign(f, { lat: sugPick.lat, lon: sugPick.lon, addr: sugPick.sub });
+  favs.places.push(f); cityRec(curCity); saveFavs();
+  $("newFav").value = ""; $("newCat").value = "Other"; sugPick = null; $("sug").hidden = true;
+  if (catFilter !== "All" && catFilter !== f.cat) catFilter = "All";
+  renderCity(); cityStatus(`Saved "${name}".`);
+}
+
+// ---- Pages: #/ home, #city/<name>, #plan ----
+function view() { const h = location.hash; return h.startsWith("#city/") ? "city" : h === "#plan" ? "plan" : "home"; }
+function go(v, city) { location.hash = v === "city" ? "city/" + encodeURIComponent(city) : v === "plan" ? "plan" : "/"; }
+function route() {
+  const v = view();
+  $("homeView").hidden = v !== "home"; $("cityView").hidden = v !== "city"; $("planView").hidden = v !== "plan";
+  if (v === "city") {
+    const c = decodeURIComponent(location.hash.slice(6));
+    if (!same(c, curCity)) { curCity = c; catFilter = "All"; picked = new Set(); sugPick = null; }
+    $("newFav").value = ""; $("sug").hidden = true; cityStatus("");
+    renderCity();
+  } else if (v === "plan") applyMode();
+  else renderHome();
+  window.scrollTo(0, 0);
 }
 
 // MORNING / AFTERNOON / EVENING by position in the list (split in thirds).
@@ -295,8 +506,7 @@ function render() {
 // ---- Between cities: one card per leg ----
 // Open one place in Google Maps (search by name, plus city when inside a city).
 function placeUrl(p) {
-  const q = !isTrip() && state.city ? `${p.name}, ${state.city}` : p.name;
-  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+  return gSearch(isTrip() ? p.name : placeQ(p, state.city));
 }
 const ICON = { metro: "🚇", train: "🚆", hsr: "🚄", bus: "🚌", walk: "🚶", pt: "🚇" };
 function renderLeg(leg) {
@@ -496,7 +706,7 @@ function estimateCityLeg(a, b, cc) {
   opts.sort((x, y) => x.min - y.min);
   return {
     city: true, from: a.name, to: b.name, km: d, options: opts, cur: CUR_OF[cc] || "USD",
-    fromQ: `${a.name}, ${state.city}`, toQ: `${b.name}, ${state.city}`,
+    fromQ: placeQ(a, state.city), toQ: placeQ(b, state.city),
     note: d > 25 ? "Far apart: check that both places are in this city." : "",
   };
 }
@@ -522,7 +732,7 @@ async function buildCityLegs() {
     state.legs[legKey(a, b)] = (typeof a.lat === "number" && typeof b.lat === "number")
       ? estimateCityLeg(a, b, state.cityCC)
       : { city: true, from: a.name, to: b.name, options: [], error: "Place not found on the map.",
-          fromQ: `${a.name}, ${state.city}`, toQ: `${b.name}, ${state.city}` };
+          fromQ: placeQ(a, state.city), toQ: placeQ(b, state.city) };
   }
 }
 
@@ -617,7 +827,7 @@ function googleTransitUrl(a, b) {
 // ---- Map links ----
 function stops() {
   if (isTrip()) return routeItems().map(c => c.name);
-  return routeItems().map(p => state.city ? `${p.name}, ${state.city}` : p.name);
+  return routeItems().map(p => placeQ(p, state.city));
 }
 function googleUrl(mode) {
   const s = stops();
@@ -628,22 +838,6 @@ function googleUrl(mode) {
   u.searchParams.set("travelmode", mode);
   const mid = s.slice(1, -1);
   if (mid.length && mode !== "transit") u.searchParams.set("waypoints", mid.join("|"));
-  return u.toString();
-}
-function appleUrl(mode) {
-  // Apple Maps unified URL (iOS 18.4+). Apple drops a waypoint it cannot find by name,
-  // so middle stops go as "lat,lon" when we know them.
-  const s = stops();
-  const u = new URL("https://maps.apple.com/directions");
-  u.searchParams.set("source", s[0]);
-  u.searchParams.set("destination", s[s.length - 1]);
-  if (mode !== "transit") {
-    routeItems().slice(1, -1).forEach((p, k) => {
-      const hasLL = typeof p.lat === "number" && typeof p.lon === "number";
-      u.searchParams.append("waypoint", hasLL ? `${p.lat.toFixed(6)},${p.lon.toFixed(6)}` : s[k + 1]);
-    });
-  }
-  u.searchParams.set("mode", mode);
   return u.toString();
 }
 
@@ -680,24 +874,8 @@ async function geocode(place, city) {
   const g = await nominatim(q);
   return ok(g) ? g : null;
 }
-// Fill missing GPS points for the middle stops (Apple Maps needs them).
-async function fillCoords() {
-  const need = routeItems().slice(1, -1).filter(p => typeof p.lat !== "number");
-  let i = 0, missing = 0;
-  for (const p of need) {
-    setStatus(`Finding map points ${++i}/${need.length}…`);
-    try {
-      const g = await geocode(p.name, isTrip() ? "" : state.city);
-      if (g) Object.assign(p, g); else missing++;
-    } catch (e) { missing++; console.warn("geocode failed", p.name, e); }
-    if (i < need.length) await new Promise(r => setTimeout(r, 400));
-  }
-  save();
-  return missing;
-}
 
 // ---- Wire up ----
-$("city").addEventListener("input", (e) => { state.city = e.target.value.trim(); save(); });
 $("addBtn").onclick = () => {
   const lines = $("newPlace").value.split("\n").map(s => s.trim()).filter(Boolean);
   if (!lines.length) return;
@@ -730,23 +908,14 @@ $("mapBtn").onclick = () => {
   syncLeg();
   $("mapDlg").showModal();
 };
-// Middle stops work only for: Google walking/driving, Apple driving.
-// Transit (both) and Apple walking go one leg at a time.
+// Transit opens one leg at a time.
 function syncLeg() {
-  const aBtn = $("aBtn");
-  aBtn.disabled = false; aBtn.textContent = "Apple Maps";
   if ($("legBox").hidden) { $("legHint").textContent = ""; return; }
   const mode = $("mode").value, sel = $("legSel");
   const all = sel.options[0];
   all.disabled = mode === "transit";
   if (all.disabled && sel.value === "all") sel.value = "0";
-  let hint = "";
-  if (mode === "transit") hint = "Transit opens one leg at a time. Come back for the next leg.";
-  else if (mode === "walking" && sel.value === "all") {
-    hint = "Apple Maps walking can't stop in the middle. Pick one leg, or use Google Maps.";
-    aBtn.disabled = true; aBtn.textContent = "Apple Maps (pick one leg)";
-  } else if (mode === "walking") hint = "Apple Maps: one leg at a time. Come back for the next leg.";
-  $("legHint").textContent = hint;
+  $("legHint").textContent = mode === "transit" ? "Transit opens one leg at a time. Come back for the next leg." : "";
 }
 $("mode").addEventListener("change", syncLeg);
 $("legSel").addEventListener("change", syncLeg);
@@ -764,25 +933,53 @@ function rememberLeg() {
   save();
 }
 $("gBtn").onclick = () => { rememberLeg(); location.href = googleUrl($("mode").value); $("mapDlg").close(); };
-$("aBtn").onclick = async () => {
-  const mode = $("mode").value;
-  rememberLeg();
-  $("mapDlg").close();
-  const missing = mode === "transit" ? 0 : await fillCoords();
-  setStatus(missing ? `${missing} stop(s) not found on the map. Apple Maps may skip them.` : "");
-  location.href = appleUrl(mode);
-};
 $("cancelBtn").onclick = () => $("mapDlg").close();
-$("favBtn").onclick = () => { renderFavs(); $("favDlg").showModal(); };
-$("favClose").onclick = () => $("favDlg").close();
 
-$("segCity").onclick = () => { state.mode = "city"; save(); applyMode(); };
-$("segTrip").onclick = () => { state.mode = "trip"; save(); applyMode(); };
+// Home
+$("tripBtn").onclick = () => { state.mode = "trip"; save(); go("plan"); };
+// City page
+CATS.forEach(k => $("newCat").add(new Option(`${CAT_ICON[k]} ${k}`, k)));
+$("newCat").value = "Other";
+$("cityBack").onclick = () => go("home");
+$("cityDel").onclick = () => {
+  const n = cityPlaces().length;
+  if (!confirm(n ? `Remove ${curCity} and its ${n} saved place(s)?` : `Remove ${curCity}?`)) return;
+  favs.places = favs.places.filter(p => !same(p.city, curCity));
+  favs.cities = favs.cities.filter(c => !same(c.name, curCity));
+  saveFavs(); go("home");
+};
+let sugTimer = null;
+$("newFav").addEventListener("input", () => {
+  sugPick = null; clearTimeout(sugTimer);
+  const q = $("newFav").value.trim();
+  if (q.length < 2) { sugSeq++; $("sug").hidden = true; return; }
+  sugTimer = setTimeout(() => suggest(q), 300);
+});
+$("newFav").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveNewFav(); } });
+$("newFavBtn").onclick = saveNewFav;
+$("pickAll").onclick = () => { shownPlaces().forEach(p => picked.add(pkey(p))); renderCity(); };
+$("pickNone").onclick = () => { picked.clear(); renderCity(); };
+$("gmapBtn").onclick = () => {
+  const ps = chosen(); if (!ps.length) return;
+  if (ps.length > 10) cityStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
+  window.open(gChosenUrl(ps), "_blank", "noopener");
+};
+$("routeBtn").onclick = () => {
+  const ps = chosen(); if (ps.length < 2) return;
+  // Keep earlier lookups for places that were already in the route.
+  const old = state.city === curCity ? state.places : [];
+  state.mode = "city"; state.city = curCity; state.legs = {};
+  state.places = ps.map(f => old.find(p => same(p.name, f.name)) ||
+    (typeof f.lat === "number" ? { name: f.name, addr: f.addr, lat: f.lat, lon: f.lon } : { name: f.name }));
+  save(); go("plan"); start();
+};
+// Plan page
+$("planBack").onclick = () => (isTrip() || !state.city ? go("home") : go("city", state.city));
+window.addEventListener("hashchange", route);
 
 load();
 loadFavs();
-$("city").value = state.city || "";
-applyMode();
+route();
 $("ver").textContent = "v" + APP_VERSION;
 console.log("Travel Plan", APP_VERSION);
 </script>
