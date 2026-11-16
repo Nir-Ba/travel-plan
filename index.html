@@ -141,7 +141,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.6.0";
 const KEY = "travelplan.v1";
 const $ = (id) => document.getElementById(id);
 
@@ -208,7 +208,7 @@ function render() {
     c.append(up, dn, del);
     li.append(num, body, c);
     ol.appendChild(li);
-    if (isTrip() && i < n - 1) {
+    if (i < n - 1) {
       const leg = state.legs[legKey(p, list()[i + 1])];
       if (leg) ol.appendChild(renderLeg(leg));
     }
@@ -216,12 +216,12 @@ function render() {
 }
 
 // ---- Between cities: one card per leg ----
-const ICON = { metro: "🚇", train: "🚆", hsr: "🚄", bus: "🚌" };
+const ICON = { metro: "🚇", train: "🚆", hsr: "🚄", bus: "🚌", walk: "🚶", pt: "🚇" };
 function renderLeg(leg) {
   const li = document.createElement("li");
   li.className = "leg";
   const h = document.createElement("div"); h.className = "leghead";
-  h.textContent = `${leg.from} → ${leg.to}` + (leg.km ? ` · about ${Math.round(leg.km)} km` : "");
+  h.textContent = `${leg.from} → ${leg.to}` + (typeof leg.km === "number" ? (leg.km < 1 ? ` · about ${Math.max(100, Math.round(leg.km * 10) * 100)} m` : ` · about ${Math.round(leg.km)} km`) : "");
   li.appendChild(h);
   if (leg.error) {
     const e = document.createElement("div"); e.className = "desc"; e.textContent = leg.error; li.appendChild(e);
@@ -237,16 +237,21 @@ function renderLeg(leg) {
     if (o.usd === cheapest) t.appendChild(badge("Cheapest"));
     const s = document.createElement("div"); s.className = "desc"; s.textContent = fmtTime(o.min);
     l.append(t, s);
-    const p = document.createElement("div"); p.className = "price"; p.textContent = fmtPrice(o.usd, leg.cur);
+    const p = document.createElement("div"); p.className = "price"; p.textContent = o.usd === 0 ? "Free" : fmtPrice(o.usd, leg.cur);
     r.append(l, p);
     li.appendChild(r);
   });
   if (leg.note) { const nt = document.createElement("div"); nt.className = "desc"; nt.textContent = leg.note; li.appendChild(nt); }
   const links = document.createElement("div"); links.className = "desc links";
-  links.append("Real prices: ");
-  links.appendChild(extLink("Rome2rio", rome2rioUrl(leg.from, leg.to)));
-  links.append(" · ");
-  links.appendChild(extLink("Google Maps", googleTransitUrl(leg.from, leg.to)));
+  const fq = leg.fromQ || leg.from, tq = leg.toQ || leg.to;
+  if (leg.city) {
+    links.append("Real routes: ");
+  } else {
+    links.append("Real prices: ");
+    links.appendChild(extLink("Rome2rio", rome2rioUrl(fq, tq)));
+    links.append(" · ");
+  }
+  links.appendChild(extLink("Google Maps", googleTransitUrl(fq, tq)));
   li.appendChild(links);
   const fine = document.createElement("div"); fine.className = "fine";
   fine.textContent = "Rough estimate per person, one way, from distance. Real prices can differ a lot.";
@@ -328,6 +333,7 @@ async function start() {
     catch (e) { failed++; p.desc = ""; p.url = ""; console.warn("lookup failed", p.name, e); }
     done++; setStatus(`Looking up ${done}/${todo.length}…`); render();
   }));
+  await buildCityLegs();
   save(); render();
   setStatus(failed ? `Done. ${failed} lookup(s) failed (check internet).` : "Done.");
   $("startBtn").disabled = false;
@@ -393,7 +399,47 @@ async function cityGeo(name) {
   return null;
 }
 
-function legKey(a, b) { return `${a.name}|${b.name}`; }
+function legKey(a, b) { return `${state.mode}|${a.name}|${b.name}`; }
+
+// Inside a city: walk vs public transport (metro / bus), from straight-line distance.
+function estimateCityLeg(a, b, cc) {
+  const d = km(a, b), street = d * 1.3;
+  const tier = TIER_OF[cc] || "mid", [base, perKm] = PRICES[tier].metro;
+  const opts = [{ kind: "walk", label: "Walk", min: street / 4.5 * 60, usd: 0 }];
+  // Under ~700 m, public transport is not worth it.
+  if (d >= 0.7) opts.push({ kind: "pt", label: "Public transport (metro / bus)", min: 12 + street / 22 * 60, usd: base + perKm * street });
+  opts.sort((x, y) => x.min - y.min);
+  return {
+    city: true, from: a.name, to: b.name, km: d, options: opts, cur: CUR_OF[cc] || "USD",
+    fromQ: `${a.name}, ${state.city}`, toQ: `${b.name}, ${state.city}`,
+    note: d > 25 ? "Far apart: check that both places are in this city." : "",
+  };
+}
+async function buildCityLegs() {
+  const ps = state.places;
+  if (ps.length < 2) return;
+  if (state.city && state.cityCCFor !== state.city) {
+    const g = await cityGeo(state.city);
+    if (g) { state.cityCC = g.cc; state.cityCCFor = state.city; }
+  }
+  await loadRates();
+  const need = ps.filter(p => typeof p.lat !== "number");
+  let i = 0;
+  for (const p of need) {
+    setStatus(`Finding map points ${++i}/${need.length}…`);
+    try { const g = await geocode(p.name, state.city); if (g) Object.assign(p, g); }
+    catch (e) { console.warn("geocode failed", p.name, e); }
+    if (i < need.length) await new Promise(r => setTimeout(r, 400));
+  }
+  for (const k of Object.keys(state.legs)) if (k.startsWith("city|")) delete state.legs[k];
+  for (let k = 0; k < ps.length - 1; k++) {
+    const a = ps[k], b = ps[k + 1];
+    state.legs[legKey(a, b)] = (typeof a.lat === "number" && typeof b.lat === "number")
+      ? estimateCityLeg(a, b, state.cityCC)
+      : { city: true, from: a.name, to: b.name, options: [], error: "Place not found on the map.",
+          fromQ: `${a.name}, ${state.city}`, toQ: `${b.name}, ${state.city}` };
+  }
+}
 
 function estimateLeg(a, b) {
   const d = km(a, b); // straight line
@@ -436,7 +482,7 @@ async function startTrip() {
       if (g) Object.assign(c, g); else missing.push(c.name);
     }
   }
-  state.legs = {};
+  for (const k of Object.keys(state.legs)) if (k.startsWith("trip|")) delete state.legs[k];
   for (let k = 0; k < cs.length - 1; k++) {
     const a = cs[k], b = cs[k + 1];
     state.legs[legKey(a, b)] = (typeof a.lat === "number" && typeof b.lat === "number")
@@ -461,13 +507,16 @@ function money(x, cur) {
   try { return new Intl.NumberFormat("en", { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(x); }
   catch (e) { return `${Math.round(x)} ${cur}`; }
 }
+function range(lo, hi, cur) {
+  const a = money(lo, cur), b = money(hi, cur);
+  return a === b ? a : `${a}–${b.replace(/^[^\d]+/, "")}`;
+}
 function fmtPrice(usd, cur) {
   const lo = round2(Math.max(usd * 0.8, 1)), hi = round2(Math.max(usd * 1.25, 1));
-  const usdTxt = lo === hi ? money(lo, "USD") : `${money(lo, "USD")}–${money(hi, "USD").replace(/^\D+/, "")}`;
+  const usdTxt = range(lo, hi, "USD");
   if (!rates || cur === "USD" || !rates[cur]) return usdTxt;
   const f = rates[cur];
-  const llo = round2(lo * f), lhi = round2(hi * f);
-  return `${money(llo, cur)}–${money(lhi, cur).replace(/^[^\d]+/, "")}\n${usdTxt}`;
+  return `${range(round2(lo * f), round2(hi * f), cur)}\n${usdTxt}`;
 }
 function rome2rioUrl(a, b) {
   const s = (x) => encodeURIComponent(x.trim().replace(/\s+/g, "-"));
