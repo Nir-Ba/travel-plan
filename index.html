@@ -130,23 +130,22 @@
   <div class="section" style="margin-top:16px">
     <div class="imp">
     <div class="impwrap">
-      <button id="impBtn" title="Import your saved places from a Google Takeout export">📥 Import from Maps</button>
+      <button id="impBtn" title="Import the reviewed spreadsheet of your Google Maps places">📥 Import from Maps</button>
       <button id="impInfoBtn" aria-label="How to get the export" aria-expanded="false">ⓘ</button>
     </div>
     <div class="info" id="impInfo" hidden>
-      <b>How to get your saved places from Google Maps</b>
+      <b>How to import your Google Maps places</b>
       <ol>
-        <li>Open <a href="https://takeout.google.com" target="_blank" rel="noopener">takeout.google.com</a>.</li>
-        <li>Tap <b>Deselect all</b>.</li>
-        <li>Tick <b>Saved</b> (your lists) and <b>Maps (your places)</b> (starred places).</li>
-        <li>Tap <b>Next step</b>, then <b>Create export</b>.</li>
-        <li>Google emails you a link. Download the zip file.</li>
-        <li>Tap <b>Import from Maps</b> and choose the zip, or the .csv / .json files in it.</li>
+        <li>Open <a href="https://takeout.google.com" target="_blank" rel="noopener">takeout.google.com</a>. Tap <b>Deselect all</b>. Tick <b>Saved</b> and <b>Maps (your places)</b>. Create the export.</li>
+        <li>On the Mac, unzip it to <b>Downloads/Takeout</b> and run <code>tools/takeout_to_sheet.py</code>. It makes <b>Travel Plan import.csv</b>.</li>
+        <li>Open it in Numbers. Fix <b>City</b> and <b>Category</b>. Rows marked CHECK or NOT FOUND need a look. Set <b>Include</b> to <b>no</b> to skip a row.</li>
+        <li>Numbers: <b>File › Export To › CSV</b>.</li>
+        <li>Tap <b>Import from Maps</b> and choose that CSV.</li>
       </ol>
-      <div class="fine">Places you already saved are skipped. Each place gets a city and a category from OpenStreetMap. You can change the category later.</div>
+      <div class="fine">Places you already saved are skipped, so you can import again after more fixes.</div>
     </div>
     </div>
-    <input type="file" id="impFile" accept=".zip,.csv,.json,application/zip,text/csv,application/json" multiple hidden>
+    <input type="file" id="impFile" accept=".csv,text/csv" hidden>
     <div class="status" id="homeStatus"></div>
   </div>
 </section>
@@ -227,7 +226,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.1.0";
+const APP_VERSION = "2.2.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -368,7 +367,7 @@ function renderCity() {
     cb.setAttribute("aria-label", "Choose " + p.name);
     cb.onchange = () => { cb.checked ? picked.add(pkey(p)) : picked.delete(pkey(p)); syncPick(); };
     const body = document.createElement("div"); body.className = "body";
-    body.appendChild(extLink(p.name, gSearch(placeQ(p, curCity)))).className = "name";
+    body.appendChild(extLink(p.name, p.gurl || gSearch(placeQ(p, curCity)))).className = "name";
     if (p.addr) { const a = document.createElement("div"); a.className = "fine"; a.textContent = p.addr; body.appendChild(a); }
     if (p.note) { const n = document.createElement("div"); n.className = "fine"; n.textContent = "📝 " + p.note; body.appendChild(n); }
     const sel = document.createElement("select"); sel.className = "catsel"; sel.setAttribute("aria-label", "Category of " + p.name);
@@ -469,8 +468,8 @@ function saveNewFav() {
   renderCity(); cityStatus(`Saved "${name}".`);
 }
 
-// ---- Import from Google Maps (Google Takeout export) ----
-// Saved/<list>.csv: Title, Note, URL (no address, no city). Saved Places.json: GeoJSON with address + country.
+// ---- Import the reviewed sheet ("Travel Plan import.csv", made on the Mac by tools/takeout_to_sheet.py) ----
+// Columns used: Include, City, Category, Name, Note, Lat, Lon, Google link. Only Name and City are required.
 function homeStatus(t) { $("homeStatus").textContent = t; }
 function parseCSV(text) {
   const rows = []; let row = [], f = "", q = false;
@@ -485,134 +484,34 @@ function parseCSV(text) {
   if (f || row.length) { row.push(f); rows.push(row); }
   return rows.filter(r => r.some(x => x.trim()));
 }
-function loadScript(src) {
-  return new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => bad(new Error("could not load " + src)); document.head.appendChild(s); });
-}
-// Turn the chosen files (zip, csv, json) into sources: { list, rows } or { geo }.
-async function readSources(files) {
-  const out = [];
-  const add = (name, text) => {
-    const base = name.split("/").pop();
-    if (/\.csv$/i.test(base)) {
-      const rows = parseCSV(text.replace(/^﻿/, "")); const head = (rows.shift() || []).map(h => h.trim().toLowerCase());
-      const ti = head.indexOf("title"), ni = head.indexOf("note"), ui = head.indexOf("url");
-      if (ti < 0) { console.warn("import: skipped CSV without a Title column", name); return; }
-      out.push({ list: base.replace(/\.csv$/i, ""), rows: rows.map(r => ({ name: (r[ti] || "").trim(), note: (r[ni] || "").trim(), url: r[ui] || "" })).filter(r => r.name) });
-    } else if (/\.json$/i.test(base)) {
-      let j; try { j = JSON.parse(text); } catch (e) { console.warn("import: bad JSON", name); return; }
-      if (j && Array.isArray(j.features)) out.push({ list: base.replace(/\.json$/i, ""), geo: j.features });
-      else console.warn("import: skipped JSON that is not GeoJSON", name);
-    } else console.log("import: skipped file", name);
-  };
-  for (const file of files) {
-    if (/\.zip$/i.test(file.name)) {
-      if (!window.JSZip) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js");
-      const zip = await JSZip.loadAsync(file);
-      for (const e of Object.values(zip.files)) {
-        if (e.dir || !/\.(csv|json)$/i.test(e.name)) continue;
-        // Only Google Maps parts of the export.
-        if (!/(^|\/)(Saved|Maps[^/]*)\//i.test(e.name)) { console.log("import: skipped (not Maps)", e.name); continue; }
-        add(e.name, await e.async("string"));
-      }
-    } else add(file.name, await file.text());
-  }
-  return out;
-}
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-// Ask Photon for a place by name. Near a point when we have one. Returns the best match or null.
-async function photonFind(name, near, maxKm) {
-  // No towns, borders or streets: a saved place is a venue. ("Sagrada Família" is also a town in Brazil.)
-  let url = "https://photon.komoot.io/api/?limit=6&lang=en&osm_tag=!place&osm_tag=!boundary&osm_tag=!highway&q=" + encodeURIComponent(name);
-  if (near) url += `&lat=${near.lat}&lon=${near.lon}`;
-  const r = await fetch(url); if (!r.ok) return null;
-  const ok = ((await r.json()).features || []).map(f => ({ lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], pr: f.properties }))
-    .filter(h => !(near && maxKm && km(h, near) > maxKm));
-  // Stations are often named after the sight next to them. Prefer the sight itself.
-  const transport = (h) => ["railway", "public_transport"].includes(h.pr.osm_key);
-  return ok.find(h => !transport(h)) || ok[0] || null;
-}
-async function photonReverse(ll) {
-  const r = await fetch(`https://photon.komoot.io/reverse?lang=en&lat=${ll.lat}&lon=${ll.lon}`); if (!r.ok) return null;
-  const f = (await r.json()).features?.[0]; return f ? f.properties : null;
-}
-// City name from Photon properties. Tokyo's wards report as cities, so use the state there.
-function cityFromProps(pr) {
-  if (!pr) return "";
-  if (/^tokyo/i.test(pr.state || "") && (pr.countrycode || "").toUpperCase() === "JP") return "Tokyo";
-  return pr.city || pr.town || pr.village || pr.county || pr.state || "";
-}
-// An existing app city whose centre is within 30 km wins, so "Shibuya" lands in "Tokyo".
-const cityCenters = {};
-async function nearCity(ll) {
-  for (const c of favCities()) {
-    if (!(c.name in cityCenters)) { cityCenters[c.name] = await getCityCenterFor(c.name); }
-    const cc = cityCenters[c.name]; if (cc && km(ll, cc) <= 30) return c.name;
-  }
-  return "";
-}
-async function getCityCenterFor(name) { try { return await cityGeo(name); } catch (e) { return null; } }
-// A Google Maps URL sometimes has "@lat,lon" or "!3dlat!4dlon" in it.
-function llFromUrl(u) {
-  const m = u.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || u.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || u.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-  return m ? { lat: +m[1], lon: +m[2] } : null;
-}
 async function importFiles(files) {
-  homeStatus("Reading files…");
-  const sources = await readSources(files);
-  const total = sources.reduce((n, s) => n + (s.rows || s.geo).length, 0);
-  console.log("import: sources", sources.map(s => `${s.list}: ${(s.rows || s.geo).length}`));
-  if (!total) { homeStatus("No Google Maps places found in these files."); return; }
-  // Turn every source into items { name, note, ll?, cc?, addr?, city? }.
-  const items = [];
-  for (const s of sources) {
-    if (s.geo) {
-      for (const f of s.geo) {
-        const p = f.properties || {}, loc = p.location || {}, c = f.geometry?.coordinates || [];
-        const name = (loc.name || p.Title || p.name || "").trim(); if (!name) continue;
-        const ll = c.length === 2 && (c[0] || c[1]) ? { lat: c[1], lon: c[0] } : llFromUrl(p.google_maps_url || "");
-        items.push({ name, note: (p.Comment || p.comment || "").trim(), ll, cc: (loc.country_code || "").toUpperCase(), addr: loc.address || "" });
-      }
-    } else {
-      // One city for the whole list, if the user knows it. Guess: the list name, when it is one of your cities.
-      const guess = favCities().find(c => same(c.name, s.list))?.name || "";
-      const ans = prompt(`Google Maps list "${s.list}" has ${s.rows.length} place(s).\nWhich city are they in?\nLeave empty to find each place's city (it can guess wrong for chains). Cancel to skip this list.`, guess);
-      if (ans === null) { console.log("import: user skipped list", s.list); continue; }
-      const city = ans.trim();
-      for (const r of s.rows) items.push({ name: r.name, note: r.note, ll: llFromUrl(r.url), city });
+  let added = 0, dup = 0, skipped = 0, noCity = 0, read = 0;
+  for (const file of files) {
+    const rows = parseCSV((await file.text()).replace(/^﻿/, ""));
+    const head = (rows.shift() || []).map(h => h.trim().toLowerCase());
+    const col = (n) => head.indexOf(n);
+    if (col("name") < 0 || col("city") < 0) { homeStatus(`"${file.name}" has no Name and City columns. Use the sheet made on the Mac.`); return; }
+    for (const r of rows) {
+      const g = (n) => (col(n) >= 0 ? (r[col(n)] || "").trim() : "");
+      read++;
+      if (/^(no|n|false|0)$/i.test(g("include"))) { skipped++; continue; }
+      const name = g("name"), city = g("city");
+      if (!name) { skipped++; continue; }
+      if (!city) { noCity++; continue; }
+      if (favs.places.some(p => same(p.name, name) && same(p.city, city))) { dup++; continue; }
+      const cat = CATS.find(k => same(k, g("category"))) || "Other";
+      const f = { name, city, cat };
+      const lat = parseFloat(g("lat")), lon = parseFloat(g("lon"));
+      if (isFinite(lat) && isFinite(lon)) Object.assign(f, { lat, lon });
+      if (g("note")) f.note = g("note");
+      if (/^https:\/\/(www\.)?google\.[a-z.]+\/maps|^https?:\/\/maps\.google\./.test(g("google link"))) f.gurl = g("google link");
+      favs.places.push(f); cityRec(city); added++;
     }
   }
-  let added = 0, dup = 0, lost = 0, i = 0;
-  const lostNames = [];
-  for (const it of items) {
-    homeStatus(`Importing ${++i}/${items.length}: ${it.name}`);
-    try {
-      let city = it.city, hit = null;
-      const center = city ? await getCityCenter(city) : null;
-      // Find the place in OpenStreetMap: near its own point, else near the city, else anywhere.
-      hit = await photonFind(it.name, it.ll || center, it.ll ? 0.4 : center ? MAX_KM : 0);
-      await sleep(200);
-      const ll = it.ll || (hit && { lat: hit.lat, lon: hit.lon });
-      if (!city && ll) city = await nearCity(ll);
-      if (!city) {
-        let pr = hit && hit.pr;
-        if (!pr && ll) { pr = await photonReverse(ll); await sleep(200); }
-        city = cityFromProps(pr);
-      }
-      if (!city) { lost++; lostNames.push(it.name); console.warn("import: no city for", it.name); continue; }
-      if (favs.places.some(p => same(p.name, it.name) && same(p.city, city))) { dup++; continue; }
-      const f = { name: it.name, city, cat: hit ? osmCat(hit.pr.osm_key, hit.pr.osm_value) : "Other" };
-      if (ll) Object.assign(f, { lat: ll.lat, lon: ll.lon });
-      if (it.addr) f.addr = it.addr;
-      if (it.note) f.note = it.note;
-      favs.places.push(f);
-      const rec = cityRec(city); if (!rec.cc && (it.cc || hit?.pr?.countrycode)) rec.cc = (it.cc || hit.pr.countrycode).toUpperCase();
-      added++;
-      if (added % 10 === 0) saveFavs(); // keep progress if the page closes
-    } catch (e) { lost++; lostNames.push(it.name); console.warn("import failed for", it.name, e); }
-  }
   saveFavs(); renderHome();
-  homeStatus(`Imported ${added} place(s).` + (dup ? ` ${dup} already saved.` : "")
-    + (lost ? ` ${lost} not found: ${lostNames.slice(0, 5).join(", ")}${lost > 5 ? "…" : ""}.` : ""));
+  console.log("import:", { read, added, dup, skipped, noCity });
+  homeStatus(`Imported ${added} place(s).` + (dup ? ` ${dup} already saved.` : "") + (skipped ? ` ${skipped} skipped (Include = no).` : "")
+    + (noCity ? ` ${noCity} have no city: add one in the sheet and import again.` : ""));
 }
 
 // ---- Pages: #/ home, #city/<name>, #plan ----
