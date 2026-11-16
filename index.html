@@ -141,8 +141,8 @@
       <ol>
         <li>Open <a href="https://takeout.google.com" target="_blank" rel="noopener">takeout.google.com</a>. Tap <b>Deselect all</b>. Tick <b>Saved</b> and <b>Maps (your places)</b>. Create the export.</li>
         <li>On the Mac, unzip it to <b>Downloads/Takeout</b> and run <code>tools/takeout_to_sheet.py</code>. It makes <b>Travel Plan import.csv</b>.</li>
-        <li>Open it in Numbers. Fix <b>City</b> and <b>Category</b>. Rows marked CHECK or NOT FOUND need a look. Set <b>Include</b> to <b>no</b> to skip a row.</li>
-        <li>Numbers: <b>File › Export To › CSV</b>.</li>
+        <li>Open it in Excel. Fix <b>City</b> and <b>Category</b>. Rows marked CHECK or NOT FOUND need a look. Set <b>Include</b> to <b>no</b> to skip a row.</li>
+        <li>Excel: <b>File › Save As</b>, format <b>CSV UTF-8 (Comma delimited)</b>. Plain “CSV” breaks Hebrew.</li>
         <li>Tap <b>Import from Maps</b> and choose that CSV.</li>
       </ol>
       <div class="fine">Places you already saved are skipped, so you can import again after more fixes.</div>

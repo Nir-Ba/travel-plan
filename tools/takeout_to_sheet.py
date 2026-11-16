@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Turn a Google Takeout export (Google Maps saved lists + starred places) into one
-spreadsheet (CSV) to review in Numbers, then import into Travel Plan.
+spreadsheet (CSV) to review in Excel (save back as CSV UTF-8), then import into Travel Plan.
 
 Usage (Mac):  python3 tools/takeout_to_sheet.py ~/Downloads/Takeout
 Output:       <Takeout folder>/Travel Plan import.csv
@@ -220,7 +220,7 @@ def main():
     order = {"NOT": 0, "CHE": 1, "OK": 2}
     rows.sort(key=lambda r: (order.get(r["Check"][:3], 3), r["City"].lower(), r["Source list"], r["Name"].lower()))
     out = os.path.join(root, "Travel Plan import.csv")
-    with open(out, "w", encoding="utf-8-sig", newline="") as f:  # BOM: Numbers/Excel show Hebrew right
+    with open(out, "w", encoding="utf-8-sig", newline="") as f:  # BOM: Excel shows Hebrew right
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["Include", "City", "Name"])
         w.writeheader(); w.writerows(rows)
     n = lambda k: sum(1 for r in rows if r["Check"].startswith(k))
