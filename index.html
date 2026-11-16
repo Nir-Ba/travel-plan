@@ -110,6 +110,9 @@
   #favPlaces { list-style: none; padding: 0; margin: 0; }
   li.fplace { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; }
   li.fplace input[type=checkbox] { width: 22px; height: 22px; flex: 0 0 22px; accent-color: var(--accent); }
+  textarea.note { display: block; width: 100%; min-height: 0; margin-top: 6px; padding: 6px 8px; font-size: 14px; line-height: 1.35;
+    color: var(--muted); background: transparent; border: 1px dashed var(--line); border-radius: 8px; resize: none; overflow: hidden; }
+  textarea.note:focus { color: var(--ink); border-style: solid; border-color: var(--accent); outline: none; }
   .catsel { width: auto; font-size: 13px; padding: 4px 8px; margin-top: 6px; border-radius: 8px; }
   li.fplace button.del { padding: 6px 10px; background: transparent; }
   /* Import from Google Maps: how-to shows on hover (Mac) or on ⓘ tap (iPhone) */
@@ -226,7 +229,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.2.0";
+const APP_VERSION = "2.3.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -369,7 +372,13 @@ function renderCity() {
     const body = document.createElement("div"); body.className = "body";
     body.appendChild(extLink(p.name, p.gurl || gSearch(placeQ(p, curCity)))).className = "name";
     if (p.addr) { const a = document.createElement("div"); a.className = "fine"; a.textContent = p.addr; body.appendChild(a); }
-    if (p.note) { const n = document.createElement("div"); n.className = "fine"; n.textContent = "📝 " + p.note; body.appendChild(n); }
+    // Note: shows the imported text; tap to edit. Saved when you leave the box.
+    const note = document.createElement("textarea"); note.className = "note"; note.rows = 1;
+    note.value = p.note || ""; note.placeholder = "＋ Add a note"; note.setAttribute("aria-label", "Note for " + p.name);
+    const fit = () => { note.style.height = "auto"; note.style.height = note.scrollHeight + "px"; };
+    note.oninput = fit;
+    note.onchange = () => { const v = note.value.trim(); if (v) p.note = v; else delete p.note; saveFavs(); cityStatus(`Note saved for "${p.name}".`); };
+    body.appendChild(note); requestAnimationFrame(fit);
     const sel = document.createElement("select"); sel.className = "catsel"; sel.setAttribute("aria-label", "Category of " + p.name);
     CATS.forEach(k => sel.add(new Option(`${CAT_ICON[k]} ${k}`, k)));
     sel.value = catOf(p);
