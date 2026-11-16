@@ -84,6 +84,14 @@
   dialog::backdrop { background: rgba(0,0,0,.45); }
   dialog h2 { margin: 0 0 12px; font-size: 20px; }
   dialog .stack { display: flex; flex-direction: column; gap: 10px; }
+  .ctrls button.fav.on { color: #e0a400; }
+  #favList { list-style: none; margin: 0; padding: 0; max-height: 55vh; overflow-y: auto; }
+  #favList li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+  #favList li:first-child { border-top: 0; }
+  #favList .fname { flex: 1; font-weight: 600; }
+  #favList .fcity { font-size: 12px; font-weight: 500; color: var(--muted); display: block; }
+  #favList button { padding: 6px 10px; font-size: 14px; }
+  #favList button.del { color: var(--danger); }
 </style>
 </head>
 <body>
@@ -106,6 +114,7 @@
     <div class="row" style="margin-top:8px">
       <button id="addBtn">Add</button>
       <button id="clearBtn">Clear list</button>
+      <button id="favBtn">★ Favorites</button>
     </div>
   </div>
 
@@ -140,9 +149,19 @@
   </div>
 </dialog>
 
+<dialog id="favDlg">
+  <h2 id="favTitle">Favorite places</h2>
+  <div class="stack">
+    <div class="fine" id="favHint">Tap ☆ on a place to save it here. Tap Add to put it back in your list.</div>
+    <ul id="favList"></ul>
+    <button id="favClose">Close</button>
+  </div>
+</dialog>
+
 <script>
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 const KEY = "travelplan.v1";
+const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
 
 // mode "city": places inside one city. mode "trip": travel between cities.
@@ -171,6 +190,60 @@ function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
 }
 function setStatus(t) { $("status").textContent = t; }
+
+// ---- Favorites: places keep their city; cities stand alone ----
+let favs = { places: [], cities: [] };
+function loadFavs() {
+  try {
+    const f = JSON.parse(localStorage.getItem(FAV_KEY));
+    if (f) favs = { places: Array.isArray(f.places) ? f.places : [], cities: Array.isArray(f.cities) ? f.cities : [] };
+  } catch (e) {}
+}
+function saveFavs() {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); } catch (e) {}
+}
+const favList = () => (isTrip() ? favs.cities : favs.places);
+const same = (a, b) => (a || "").trim().toLowerCase() === (b || "").trim().toLowerCase();
+function favIndex(p) {
+  return favList().findIndex(f => same(f.name, p.name) && (isTrip() || same(f.city, state.city)));
+}
+function toggleFav(p) {
+  const i = favIndex(p);
+  if (i >= 0) { favList().splice(i, 1); setStatus(`Removed "${p.name}" from favorites.`); }
+  else {
+    favList().push(isTrip() ? { name: p.name } : { name: p.name, city: state.city });
+    setStatus(`Saved "${p.name}" to favorites.`);
+  }
+  saveFavs(); render();
+}
+function renderFavs() {
+  const ul = $("favList"); ul.innerHTML = "";
+  $("favTitle").textContent = isTrip() ? "Favorite cities" : "Favorite places";
+  // Places in the current city come first.
+  const items = favList().map((f, i) => ({ f, i }));
+  if (!isTrip()) items.sort((a, b) => (same(b.f.city, state.city) ? 1 : 0) - (same(a.f.city, state.city) ? 1 : 0));
+  if (!items.length) { ul.innerHTML = `<li class="empty">No favorites yet.</li>`; return; }
+  items.forEach(({ f, i }) => {
+    const li = document.createElement("li");
+    const n = document.createElement("span"); n.className = "fname"; n.textContent = f.name;
+    if (!isTrip() && f.city) { const c = document.createElement("span"); c.className = "fcity"; c.textContent = f.city; n.appendChild(c); }
+    const inList = list().some(p => same(p.name, f.name));
+    const add = btn(inList ? "In list" : "Add", "Add to list", () => addFav(f)); add.disabled = inList;
+    const del = btn("✕", "Remove from favorites", () => { favList().splice(i, 1); saveFavs(); renderFavs(); render(); });
+    del.className = "del";
+    li.append(n, add, del);
+    ul.appendChild(li);
+  });
+}
+function addFav(f) {
+  if (!isTrip() && f.city && !same(f.city, state.city)) {
+    if (state.city && list().length && !confirm(`"${f.name}" is in ${f.city}. Your list is for ${state.city}. Add it anyway?`)) return;
+    if (!list().length || !state.city) { state.city = f.city; $("city").value = f.city; }
+  }
+  list().push({ name: f.name });
+  save(); render(); renderFavs();
+  setStatus(`Added "${f.name}".`);
+}
 
 // MORNING / AFTERNOON / EVENING by position in the list (split in thirds).
 function timeTag(i, n) {
@@ -205,8 +278,11 @@ function render() {
     const c = document.createElement("div"); c.className = "ctrls";
     const up = btn("▲", "Move up", () => move(i, -1)); up.disabled = i === 0;
     const dn = btn("▼", "Move down", () => move(i, 1)); dn.disabled = i === n - 1;
+    const isFav = favIndex(p) >= 0;
+    const fav = btn(isFav ? "★" : "☆", isFav ? "Remove from favorites" : "Save to favorites", () => toggleFav(p));
+    fav.className = isFav ? "fav on" : "fav";
     const del = btn("✕", "Remove", () => { list().splice(i, 1); save(); render(); }); del.className = "del";
-    c.append(up, dn, del);
+    c.append(fav, up, dn, del);
     li.append(num, body, c);
     ol.appendChild(li);
     if (i < n - 1) {
@@ -697,11 +773,14 @@ $("aBtn").onclick = async () => {
   location.href = appleUrl(mode);
 };
 $("cancelBtn").onclick = () => $("mapDlg").close();
+$("favBtn").onclick = () => { renderFavs(); $("favDlg").showModal(); };
+$("favClose").onclick = () => $("favDlg").close();
 
 $("segCity").onclick = () => { state.mode = "city"; save(); applyMode(); };
 $("segTrip").onclick = () => { state.mode = "trip"; save(); applyMode(); };
 
 load();
+loadFavs();
 $("city").value = state.city || "";
 applyMode();
 $("ver").textContent = "v" + APP_VERSION;
