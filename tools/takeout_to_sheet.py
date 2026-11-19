@@ -141,7 +141,7 @@ def read_list(path):
         if not g("Title") and not g("URL"): continue
         if "google.com/maps" not in g("URL"):
             print(f"  skipped (not a Google Maps link): {g('Title')[:50]!r}", file=sys.stderr); continue
-        out.append({"name": g("Title") or "Dropped pin", "note": g("Note") or g("Comment"), "url": g("URL")})
+        out.append({"name": " ".join(g("Title").split()) or "Dropped pin", "note": g("Note") or g("Comment"), "url": g("URL")})
     return out
 
 def main():
@@ -216,6 +216,15 @@ def main():
         print("  no Maps (your places)/Saved Places.json - skipped starred places", file=sys.stderr)
 
     save_cache()
+    # No city yet, but the name or note says one of the known cities ("Yumoto Spa, ..., Bangkok"): use it.
+    known = sorted({r["City"] for r in rows if r["City"]}, key=len, reverse=True)
+    fixed = 0
+    for r in rows:
+        if r["City"]: continue
+        text = f'{r["Name"]} {r["Note"]}'.lower()
+        hit = next((c for c in known if re.search(r"(^|[\s,(])" + re.escape(c.lower()) + r"($|[\s,)])", text)), None)
+        if hit: r["City"] = hit; r["Check"] = "CHECK: city taken from the name"; fixed += 1
+    print(f"  city taken from the name for {fixed} row(s)")
     # Problems first, then by city.
     order = {"NOT": 0, "CHE": 1, "OK": 2}
     rows.sort(key=lambda r: (order.get(r["Check"][:3], 3), r["City"].lower(), r["Source list"], r["Name"].lower()))
@@ -225,7 +234,52 @@ def main():
         w.writeheader(); w.writerows(rows)
     n = lambda k: sum(1 for r in rows if r["Check"].startswith(k))
     print(f"\nWrote {len(rows)} rows to {out}")
+    write_xlsx(rows, os.path.join(root, "Travel Plan import.xlsx"))
     print(f"  OK: {n('OK')}   CHECK: {n('CHECK')}   NOT FOUND: {n('NOT')}   (Photon calls this run: {calls})")
+
+APP_CATS = ["Restaurant", "Café", "Bar", "Park", "Museum", "Sight", "Shop", "Hotel", "Other"]
+
+def write_xlsx(rows, path):
+    """Same rows as an Excel file to review: dropdowns, colours, filters. Save it back as CSV UTF-8 for the app."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.worksheet.datavalidation import DataValidation
+    except ImportError:
+        print("  skipped Excel file: openpyxl is not installed (pip3 install openpyxl)", file=sys.stderr); return
+    if not rows: print("  skipped Excel file: no rows", file=sys.stderr); return
+    wb = Workbook(); ws = wb.active; ws.title = "Places"
+    cols = list(rows[0].keys()); ws.append(cols)
+    for r in rows: ws.append([r[c] for c in cols])
+    n = len(rows) + 1
+    ws.freeze_panes = "A2"; ws.auto_filter.ref = f"A1:{chr(64 + len(cols))}{n}"
+    for c in ws[1]: c.font = Font(bold=True)
+    widths = {"Include": 9, "City": 18, "Category": 13, "Name": 34, "Note": 30, "Check": 34, "Found on map": 40,
+              "Source list": 18, "Lat": 11, "Lon": 11, "Google link": 14}
+    for i, c in enumerate(cols, 1): ws.column_dimensions[chr(64 + i)].width = widths.get(c, 14)
+    fills = {"NOT": PatternFill("solid", fgColor="F8D7D3"), "CHE": PatternFill("solid", fgColor="FFF1C2")}
+    gl = cols.index("Google link") + 1
+    for i, r in enumerate(rows, 2):
+        f = fills.get(r["Check"][:3])
+        if f:
+            for c in ws[i]: c.fill = f
+        if not r["City"]: ws.cell(i, cols.index("City") + 1).fill = PatternFill("solid", fgColor="F0A39A")
+        link = ws.cell(i, gl)
+        if r["Google link"]: link.hyperlink = r["Google link"]; link.font  # keep the URL as the value: the app reads it from the CSV = Font(color="0A7C6E", underline="single")
+        for c in ws[i]: c.alignment = Alignment(vertical="top")
+    # Dropdowns. City allows new names too (no error), Include and Category do not.
+    cities = sorted({r["City"] for r in rows if r["City"]}, key=str.lower)
+    cs = wb.create_sheet("Cities")
+    for c in cities: cs.append([c])
+    col = lambda name: chr(64 + cols.index(name) + 1)
+    dv_inc = DataValidation(type="list", formula1='"yes,no"', allow_blank=True)
+    dv_cat = DataValidation(type="list", formula1='"' + ",".join(APP_CATS) + '"', allow_blank=True)
+    dv_city = DataValidation(type="list", formula1=f"Cities!$A$1:$A${max(1, len(cities))}", allow_blank=True, showErrorMessage=False)
+    for dv, name in ((dv_inc, "Include"), (dv_cat, "Category"), (dv_city, "City")):
+        ws.add_data_validation(dv); dv.add(f"{col(name)}2:{col(name)}{n}")
+    wb.active = 0
+    wb.save(path)
+    print(f"Wrote Excel file {path}")
 
 if __name__ == "__main__":
     main()
