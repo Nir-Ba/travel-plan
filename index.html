@@ -129,9 +129,12 @@
   .prow .chev { color: var(--muted); font-size: 20px; font-weight: 400; }
   button.fab { flex: 0 0 52px; border-radius: 50%; font-size: 26px; font-weight: 400; padding: 0; height: 52px; align-self: center; }
   #placeDlg textarea { min-height: 90px; }
+  input.pdname { font-size: 20px; font-weight: 700; border-color: transparent; background: transparent; padding: 6px 8px; margin: -6px 0 10px -8px; }
+  input.pdname:focus { border-color: var(--accent); background: var(--card); outline: none; }
   #placeDlg a.btnlink { display: block; text-align: center; padding: 12px; border-radius: 12px; background: var(--line); color: var(--ink); font-weight: 600; text-decoration: none; }
   #placeDlg button.del { background: transparent; }
   li.fplace.tip { background: color-mix(in srgb, var(--card) 88%, #e0a400); }
+  li.fplace.hl { background: color-mix(in srgb, var(--card) 80%, var(--accent)); border-color: var(--accent); transition: background .3s; }
   .tipmark { flex: 0 0 22px; font-size: 18px; text-align: center; }
   /* Import from Google Maps: how-to shows on hover (Mac) or on ⓘ tap (iPhone) */
   .impwrap { position: relative; display: flex; gap: 8px; }
@@ -228,11 +231,15 @@
 </main>
 
 <dialog id="placeDlg">
-  <h2 id="pdName"></h2>
+  <input id="pdName" class="pdname" aria-label="Name" autocomplete="off">
   <div class="fine" id="pdAddr" style="margin:-8px 0 10px"></div>
   <div class="stack">
     <label class="small" for="pdNote" id="pdNoteLbl">Note</label>
     <textarea id="pdNote" rows="3" placeholder="Add a note"></textarea>
+    <div id="pdPhoneBox" class="stack" hidden>
+      <label class="small" for="pdPhone">Phone (with country code, e.g. +972…)</label>
+      <input id="pdPhone" type="tel" inputmode="tel" autocomplete="off" placeholder="+66 81 234 5678">
+    </div>
     <div id="pdLinks" class="stack" hidden></div>
     <label class="small" for="pdCat">Category</label>
     <select id="pdCat"></select>
@@ -262,7 +269,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.7.0";
+const APP_VERSION = "2.7.2";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -427,7 +434,7 @@ function renderCity() {
   const ul = $("favPlaces"); ul.innerHTML = "";
   if (!ps.length) ul.innerHTML = `<li class="empty">No places yet. Type a name above to add one.</li>`;
   shownPlaces().forEach(p => {
-    const li = document.createElement("li"); li.className = isTip(p) ? "fplace tip" : "fplace";
+    const li = document.createElement("li"); li.className = (isTip(p) ? "fplace tip" : "fplace") + (pkey(p) === hlKey ? " hl" : "");
     let cb;
     if (isTip(p)) { cb = document.createElement("span"); cb.className = "tipmark"; cb.textContent = "💡"; }
     else {
@@ -440,7 +447,7 @@ function renderCity() {
     const txt = document.createElement("span"); txt.className = "ptxt";
     const nm = document.createElement("span"); nm.className = "pname"; nm.textContent = p.name;
     const sub = document.createElement("span"); sub.className = "psub";
-    sub.textContent = isTip(p) ? (p.note ? p.note.split("\n")[0] : "Tap to add details")
+    sub.textContent = isTip(p) ? ([p.phone && "📞 " + p.phone, p.note && p.note.split("\n")[0]].filter(Boolean).join(" · ") || "Tap to add details")
       : `${CAT_ICON[catOf(p)]} ${catOf(p)}` + (p.note ? " · " + p.note.split("\n")[0] : "");
     txt.append(nm, sub);
     const chev = document.createElement("span"); chev.className = "chev"; chev.textContent = "›";
@@ -453,9 +460,16 @@ function renderCity() {
 }
 // ---- Place panel: note, category, Google Maps, delete ----
 let curPlace = null;
+// The row of the last tapped pin gets a coloured background.
+let hlKey = "";
+function showHl() {
+  const li = document.querySelector("#favPlaces li.hl");
+  if (li) li.scrollIntoView({ block: "center", behavior: "smooth" }); // "nearest" leaves it under the bottom buttons
+}
 function openPlace(p) {
   curPlace = p;
-  $("pdName").textContent = p.name;
+  $("pdName").value = p.name;
+  $("pdPhone").value = p.phone || "";
   $("pdAddr").textContent = p.addr || ""; $("pdAddr").hidden = !p.addr;
   $("pdNote").value = p.note || "";
   $("pdCat").value = catOf(p);
@@ -466,11 +480,11 @@ function openPlace(p) {
 // A tip has no map link. Phone numbers, emails and web links in its text become buttons.
 function syncPanel() {
   const tip = $("pdCat").value === "Tips";
-  $("pdMap").hidden = tip;
+  $("pdMap").hidden = tip; $("pdPhoneBox").hidden = !tip;
   $("pdNoteLbl").textContent = tip ? "Details (phone, price, how to book…)" : "Note";
   const box = $("pdLinks"); box.innerHTML = "";
   if (!tip) { box.hidden = true; return; }
-  const t = $("pdNote").value, links = [];
+  const t = $("pdPhone").value + "\n" + $("pdNote").value, links = [];
   for (const m of t.matchAll(/https?:\/\/[^\s]+/g)) links.push(["🔗 " + m[0].replace(/^https?:\/\/(www\.)?/, "").slice(0, 32), m[0]]);
   for (const m of t.matchAll(/[\w.+-]+@[\w-]+\.[\w.-]+/g)) links.push(["✉️ " + m[0], "mailto:" + m[0]]);
   for (const m of t.matchAll(/\+?\d[\d\s().-]{6,}\d/g)) {
@@ -485,9 +499,17 @@ function syncPanel() {
 function closePlace() {
   const p = curPlace; curPlace = null;
   if (!p || !favs.places.includes(p)) return;
-  const v = $("pdNote").value.trim(), cat = $("pdCat").value;
-  if (v === (p.note || "") && cat === catOf(p)) return; // nothing changed
+  const v = $("pdNote").value.trim(), cat = $("pdCat").value, ph = $("pdPhone").value.trim();
+  let name = $("pdName").value.trim();
+  // An empty name, or a name another place in this city has, keeps the old name.
+  if (!name || (!same(name, p.name) && cityPlaces().some(o => o !== p && same(o.name, name)))) {
+    if (name) alert(`"${name}" is already saved in ${curCity}. The old name stays.`);
+    name = p.name;
+  }
+  if (name === p.name && v === (p.note || "") && cat === catOf(p) && ph === (p.phone || "")) return; // nothing changed
+  if (name !== p.name) { const was = picked.delete(pkey(p)); p.name = name; if (was) picked.add(pkey(p)); }
   if (v) p.note = v; else delete p.note;
+  if (ph && cat === "Tips") p.phone = ph; else if (cat === "Tips") delete p.phone;
   p.cat = cat;
   if (saveFavs()) cityStatus(`Saved "${p.name}".`);
   renderCity();
@@ -535,7 +557,7 @@ async function renderMap() {
     const m = L.circleMarker([p.lat, p.lon], { radius: on ? 10 : 7, color: on ? "#1d1d1f" : "#ffffff", weight: on ? 3 : 1.5,
       fillColor: CAT_COLOR[catOf(p)], fillOpacity: on ? 1 : 0.85 });
     m.bindTooltip(p.name);
-    m.on("click", () => { on ? picked.delete(pkey(p)) : picked.add(pkey(p)); renderCity(); });
+    m.on("click", () => { on ? picked.delete(pkey(p)) : picked.add(pkey(p)); hlKey = pkey(p); renderCity(); showHl(); });
     mapLayer.addLayer(m);
   });
   // Zoom to the pins only when the city, the filter or the pin count changes, so a tap does not move the map.
@@ -695,7 +717,7 @@ function route() {
   $("homeView").hidden = v !== "home"; $("cityView").hidden = v !== "city"; $("planView").hidden = v !== "plan";
   if (v === "city") {
     let c; try { c = decodeURIComponent(location.hash.slice(6)); } catch (e) { return go("home"); } // broken link
-    if (!same(c, curCity)) { curCity = c; catFilter = "All"; picked = new Set(); sugPick = null; }
+    if (!same(c, curCity)) { curCity = c; catFilter = "All"; picked = new Set(); sugPick = null; hlKey = ""; }
     $("newFav").value = ""; hideSug(); cityStatus("");
     if ($("placeDlg").open) $("placeDlg").close();
     showAdd(!cityPlaces().length, false); // a new city opens with the add form
@@ -1183,8 +1205,11 @@ $("newCat").addEventListener("change", () => {
 });
 $("pdCat").addEventListener("change", syncPanel);
 $("pdNote").addEventListener("input", syncPanel);
+$("pdPhone").addEventListener("input", syncPanel);
 $("placeDlg").addEventListener("close", closePlace);
-$("pdDone").onclick = () => $("placeDlg").close();
+// Save first, then close: the browser does not always fire "close" when the panel opens again soon after.
+$("pdDone").onclick = () => { closePlace(); $("placeDlg").close(); };
+$("placeDlg").addEventListener("cancel", closePlace); // Escape key
 $("pdDel").onclick = () => {
   const p = curPlace; if (!p || !confirm(`Delete "${p.name}"?`)) return;
   curPlace = null; favs.places.splice(favs.places.indexOf(p), 1); picked.delete(pkey(p));
