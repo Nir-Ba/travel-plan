@@ -14,7 +14,7 @@ Map search: Photon (OpenStreetMap, free, no key). Results are cached in
 """
 import csv, json, math, os, re, sys, time, urllib.parse, urllib.request
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 UA = "TravelPlan-import/" + VERSION
 
 # Hebrew / other list names -> what the list is.
@@ -252,7 +252,7 @@ def main():
     failed = sum(1 for r in rows if "lookup failed" in r["Check"])
     if failed: print(f"  {failed} row(s) failed on the network. Run the script again: the cache keeps the rest.")
 
-APP_CATS = ["Restaurant", "Café", "Bar", "Park", "Museum", "Sight", "Shop", "Hotel", "Other"]
+APP_CATS = ["Restaurant", "Café", "Bar", "Park", "Museum", "Sight", "Shop", "Hotel", "Other", "Tips"]
 
 def write_xlsx(rows, path):
     """Same rows as an Excel file to review: dropdowns, colours, filters. Save it back as CSV UTF-8 for the app."""

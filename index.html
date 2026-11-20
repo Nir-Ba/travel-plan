@@ -131,6 +131,8 @@
   #placeDlg textarea { min-height: 90px; }
   #placeDlg a.btnlink { display: block; text-align: center; padding: 12px; border-radius: 12px; background: var(--line); color: var(--ink); font-weight: 600; text-decoration: none; }
   #placeDlg button.del { background: transparent; }
+  li.fplace.tip { background: color-mix(in srgb, var(--card) 88%, #e0a400); }
+  .tipmark { flex: 0 0 22px; font-size: 18px; text-align: center; }
   /* Import from Google Maps: how-to shows on hover (Mac) or on ⓘ tap (iPhone) */
   .impwrap { position: relative; display: flex; gap: 8px; }
   .impwrap #impBtn { flex: 1; }
@@ -229,13 +231,14 @@
   <h2 id="pdName"></h2>
   <div class="fine" id="pdAddr" style="margin:-8px 0 10px"></div>
   <div class="stack">
-    <label class="small" for="pdNote">Note</label>
+    <label class="small" for="pdNote" id="pdNoteLbl">Note</label>
     <textarea id="pdNote" rows="3" placeholder="Add a note"></textarea>
+    <div id="pdLinks" class="stack" hidden></div>
     <label class="small" for="pdCat">Category</label>
     <select id="pdCat"></select>
     <a id="pdMap" class="btnlink" target="_blank" rel="noopener">Open in Google Maps</a>
     <button class="primary" id="pdDone" autofocus>Done</button>
-    <button class="del" id="pdDel">Delete this place</button>
+    <button class="del" id="pdDel">Delete</button>
   </div>
 </dialog>
 
@@ -259,7 +262,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.6.2";
+const APP_VERSION = "2.7.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -327,8 +330,11 @@ function toggleFav(p) {
 }
 
 // ---- Home page: one square per favorite city ----
-const CATS = ["Restaurant", "Café", "Bar", "Park", "Museum", "Sight", "Shop", "Hotel", "Other"];
-const CAT_ICON = { Restaurant: "🍽️", "Café": "☕", Bar: "🍸", Park: "🌳", Museum: "🏛️", Sight: "📸", Shop: "🛍️", Hotel: "🛏️", Other: "📍" };
+const CATS = ["Restaurant", "Café", "Bar", "Park", "Museum", "Sight", "Shop", "Hotel", "Other", "Tips"];
+const CAT_ICON = { Restaurant: "🍽️", "Café": "☕", Bar: "🍸", Park: "🌳", Museum: "🏛️", Sight: "📸", Shop: "🛍️", Hotel: "🛏️", Other: "📍", Tips: "💡" };
+// Tips: info that is not a place on the map (a local driver, a guide, how to buy a metro card).
+// They have no pin, cannot be chosen for a route, and show first in the list.
+const isTip = (p) => p.cat === "Tips";
 const CAT_OPTIONS = CATS.map(k => `<option value="${k}">${CAT_ICON[k]} ${k}</option>`).join(""); // static text only
 const catOf = (p) => (CATS.includes(p.cat) ? p.cat : "Other");
 // Country code "JP" -> 🇯🇵 (two regional-indicator letters).
@@ -401,8 +407,9 @@ function renderHome() {
 let curCity = "", catFilter = "All", picked = new Set(), sugPick = null;
 const pkey = (p) => p.name.trim().toLowerCase();
 const cityPlaces = () => favs.places.filter(p => same(p.city, curCity));
-const chosen = () => cityPlaces().filter(p => picked.has(pkey(p)));
-const shownPlaces = () => cityPlaces().filter(p => catFilter === "All" || catOf(p) === catFilter);
+const chosen = () => cityPlaces().filter(p => !isTip(p) && picked.has(pkey(p)));
+const shownPlaces = () => cityPlaces().filter(p => catFilter === "All" || catOf(p) === catFilter)
+  .sort((a, b) => isTip(b) - isTip(a)); // tips first; sort is stable, so the rest keep their order
 function cityStatus(t) { $("cityStatus").textContent = t; }
 function renderCity() {
   $("cityTitle").textContent = `${flag(cityCC(curCity))} ${curCity}`;
@@ -420,16 +427,21 @@ function renderCity() {
   const ul = $("favPlaces"); ul.innerHTML = "";
   if (!ps.length) ul.innerHTML = `<li class="empty">No places yet. Type a name above to add one.</li>`;
   shownPlaces().forEach(p => {
-    const li = document.createElement("li"); li.className = "fplace";
-    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = picked.has(pkey(p));
-    cb.setAttribute("aria-label", "Choose " + p.name);
-    cb.onchange = () => { cb.checked ? picked.add(pkey(p)) : picked.delete(pkey(p)); syncPick(); };
+    const li = document.createElement("li"); li.className = isTip(p) ? "fplace tip" : "fplace";
+    let cb;
+    if (isTip(p)) { cb = document.createElement("span"); cb.className = "tipmark"; cb.textContent = "💡"; }
+    else {
+      cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = picked.has(pkey(p));
+      cb.setAttribute("aria-label", "Choose " + p.name);
+      cb.onchange = () => { cb.checked ? picked.add(pkey(p)) : picked.delete(pkey(p)); syncPick(); };
+    }
     // Name, then category and the first line of the note. Tap to open the place panel.
     const row = document.createElement("button"); row.className = "prow"; row.setAttribute("aria-label", "Open " + p.name);
     const txt = document.createElement("span"); txt.className = "ptxt";
     const nm = document.createElement("span"); nm.className = "pname"; nm.textContent = p.name;
     const sub = document.createElement("span"); sub.className = "psub";
-    sub.textContent = `${CAT_ICON[catOf(p)]} ${catOf(p)}` + (p.note ? " · " + p.note.split("\n")[0] : "");
+    sub.textContent = isTip(p) ? (p.note ? p.note.split("\n")[0] : "Tap to add details")
+      : `${CAT_ICON[catOf(p)]} ${catOf(p)}` + (p.note ? " · " + p.note.split("\n")[0] : "");
     txt.append(nm, sub);
     const chev = document.createElement("span"); chev.className = "chev"; chev.textContent = "›";
     row.append(txt, chev);
@@ -448,7 +460,26 @@ function openPlace(p) {
   $("pdNote").value = p.note || "";
   $("pdCat").value = catOf(p);
   $("pdMap").href = p.gurl || gSearch(placeQ(p, curCity));
+  syncPanel();
   $("placeDlg").showModal();
+}
+// A tip has no map link. Phone numbers, emails and web links in its text become buttons.
+function syncPanel() {
+  const tip = $("pdCat").value === "Tips";
+  $("pdMap").hidden = tip;
+  $("pdNoteLbl").textContent = tip ? "Details (phone, price, how to book…)" : "Note";
+  const box = $("pdLinks"); box.innerHTML = "";
+  if (!tip) { box.hidden = true; return; }
+  const t = $("pdNote").value, links = [];
+  for (const m of t.matchAll(/https?:\/\/[^\s]+/g)) links.push(["🔗 " + m[0].replace(/^https?:\/\/(www\.)?/, "").slice(0, 32), m[0]]);
+  for (const m of t.matchAll(/[\w.+-]+@[\w-]+\.[\w.-]+/g)) links.push(["✉️ " + m[0], "mailto:" + m[0]]);
+  for (const m of t.matchAll(/\+?\d[\d\s().-]{6,}\d/g)) {
+    const num = m[0].replace(/[^\d+]/g, "");
+    links.push(["📞 Call " + m[0].trim(), "tel:" + num]);
+    if (num.startsWith("+")) links.push(["💬 WhatsApp", "https://wa.me/" + num.slice(1)]);
+  }
+  links.forEach(([txt, href]) => { const a = extLink(txt, href); a.className = "btnlink"; box.appendChild(a); });
+  box.hidden = !links.length;
 }
 // Saved when the panel closes: Done, Escape or a tap outside.
 function closePlace() {
@@ -471,7 +502,7 @@ function syncPick() {
 }
 // ---- City map: Leaflet + OpenStreetMap (free, no key). Loaded only when a city has map points. ----
 const CAT_COLOR = { Restaurant: "#e67e22", "Café": "#8e5b3c", Bar: "#8e44ad", Park: "#27ae60", Museum: "#2c7be5",
-  Sight: "#c0392b", Shop: "#d4a017", Hotel: "#16a085", Other: "#7f8c8d" };
+  Sight: "#c0392b", Shop: "#d4a017", Hotel: "#16a085", Other: "#7f8c8d", Tips: "#e0a400" };
 let leafletP = null, map = null, mapLayer = null, mapFitFor = "";
 function loadLeaflet() {
   if (!leafletP) leafletP = new Promise((ok, bad) => {
@@ -486,7 +517,7 @@ function loadLeaflet() {
 }
 async function renderMap() {
   const box = $("cityMap");
-  const ps = shownPlaces().filter(p => typeof p.lat === "number" && typeof p.lon === "number" && (p.lat || p.lon));
+  const ps = shownPlaces().filter(p => !isTip(p) && typeof p.lat === "number" && typeof p.lon === "number" && (p.lat || p.lon));
   if (!ps.length) { box.hidden = true; return; }
   box.hidden = false;
   let L;
@@ -586,9 +617,9 @@ function saveNewFav() {
   if (!name) { cityStatus("Type a place name first."); return; }
   if (cityPlaces().some(p => same(p.name, name))) { cityStatus(`"${name}" is already saved.`); return; }
   const f = { name, city: curCity, cat: $("newCat").value };
-  if (sugPick && same(sugPick.name, name)) Object.assign(f, { lat: sugPick.lat, lon: sugPick.lon, addr: sugPick.sub });
+  if (f.cat !== "Tips" && sugPick && same(sugPick.name, name)) Object.assign(f, { lat: sugPick.lat, lon: sugPick.lon, addr: sugPick.sub });
   favs.places.push(f); cityRec(curCity); saveFavs();
-  $("newFav").value = ""; $("newCat").value = "Other"; sugPick = null; hideSug();
+  $("newFav").value = ""; $("newCat").value = "Other"; $("newCat").dispatchEvent(new Event("change")); sugPick = null; hideSug();
   if (catFilter !== "All" && catFilter !== f.cat) catFilter = "All";
   renderCity(); cityStatus(`Saved "${name}".`);
 }
@@ -1144,6 +1175,14 @@ function showAdd(open, focus = true) {
   if (open && focus) { $("newFav").focus(); window.scrollTo(0, 0); } else if (!open) hideSug();
 }
 $("addFab").onclick = () => showAdd($("addBox").hidden);
+// Choosing Tips: no map suggestions, and a hint for what to type.
+$("newCat").addEventListener("change", () => {
+  const tip = $("newCat").value === "Tips";
+  $("newFav").placeholder = tip ? "Tip title, e.g. Driver Ahmed" : "Type a place name";
+  if (tip) hideSug();
+});
+$("pdCat").addEventListener("change", syncPanel);
+$("pdNote").addEventListener("input", syncPanel);
 $("placeDlg").addEventListener("close", closePlace);
 $("pdDone").onclick = () => $("placeDlg").close();
 $("pdDel").onclick = () => {
@@ -1163,14 +1202,14 @@ $("cityDel").onclick = () => {
 $("newFav").addEventListener("input", () => {
   sugPick = null; clearTimeout(sugTimer);
   const q = $("newFav").value.trim();
-  if (q.length < 2) { hideSug(); return; }
+  if (q.length < 2 || $("newCat").value === "Tips") { hideSug(); return; } // a tip is not on the map
   sugTimer = setTimeout(() => suggest(q), 300);
 });
 $("newFav").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveNewFav(); } });
 $("newFavBtn").onclick = saveNewFav;
 // Tick or clear the boxes in place: no need to rebuild the list.
 function setAllPicks(on) {
-  if (on) shownPlaces().forEach(p => picked.add(pkey(p))); else picked.clear();
+  if (on) shownPlaces().forEach(p => { if (!isTip(p)) picked.add(pkey(p)); }); else picked.clear();
   document.querySelectorAll("#favPlaces input[type=checkbox]").forEach(cb => cb.checked = on);
   syncPick();
 }
