@@ -98,6 +98,7 @@
   .tile.small { aspect-ratio: auto; flex-direction: row; justify-content: flex-start; gap: 8px; padding: 10px 12px; text-align: left; }
   .tile.small .flag { font-size: 22px; }
   .smallgrid { grid-column: 1 / -1; }
+  #cityMap { height: 230px; border-radius: 14px; border: 1px solid var(--line); margin-bottom: 10px; z-index: 0; }
   .tile.small .tname { font-size: 15px; }
   .hometop { display: flex; justify-content: space-between; align-items: center; }
   .hometop h1 { margin-bottom: 12px; }
@@ -188,6 +189,7 @@
       <button id="newFavBtn" class="primary">Save</button>
     </div>
   </div>
+  <div id="cityMap" hidden aria-label="Map of the places. Tap a pin to choose it."></div>
   <div class="chips" id="catChips" role="group" aria-label="Filter by category"></div>
   <div class="pickbar">
     <span id="pickCount"></span>
@@ -210,6 +212,7 @@
   <h1 id="planTitle">Route</h1>
 
   <p class="fine" style="margin:-8px 0 12px">To add or remove places, go back to the city page and choose them there.</p>
+  <button id="bestBtn" class="link" hidden>⇅ Best order (shortest walk)</button>
   <ol id="list"></ol>
 
   <div class="actions">
@@ -256,7 +259,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.6.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -459,6 +462,49 @@ function syncPick() {
   $("pickNone").hidden = !n;
   $("gmapBtn").disabled = !n;
   $("routeBtn").disabled = n < 2;
+  renderMap();
+}
+// ---- City map: Leaflet + OpenStreetMap (free, no key). Loaded only when a city has map points. ----
+const CAT_COLOR = { Restaurant: "#e67e22", "Café": "#8e5b3c", Bar: "#8e44ad", Park: "#27ae60", Museum: "#2c7be5",
+  Sight: "#c0392b", Shop: "#d4a017", Hotel: "#16a085", Other: "#7f8c8d" };
+let leafletP = null, map = null, mapLayer = null, mapFitFor = "";
+function loadLeaflet() {
+  if (!leafletP) leafletP = new Promise((ok, bad) => {
+    const css = document.createElement("link"); css.rel = "stylesheet";
+    css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"; document.head.appendChild(css);
+    const js = document.createElement("script"); js.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    js.onload = () => ok(window.L);
+    js.onerror = () => { leafletP = null; bad(new Error("map library did not load")); };
+    document.head.appendChild(js);
+  });
+  return leafletP;
+}
+async function renderMap() {
+  const box = $("cityMap");
+  const ps = shownPlaces().filter(p => typeof p.lat === "number" && typeof p.lon === "number" && (p.lat || p.lon));
+  if (!ps.length) { box.hidden = true; return; }
+  box.hidden = false;
+  let L;
+  try { L = await loadLeaflet(); } catch (e) { console.warn("renderMap:", e.message); box.hidden = true; return; }
+  if (view() !== "city") return;
+  if (!map) {
+    map = L.map(box, { zoomControl: false });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+    mapLayer = L.layerGroup().addTo(map);
+  }
+  map.invalidateSize();
+  mapLayer.clearLayers();
+  ps.forEach(p => {
+    const on = picked.has(pkey(p));
+    const m = L.circleMarker([p.lat, p.lon], { radius: on ? 10 : 7, color: on ? "#1d1d1f" : "#ffffff", weight: on ? 3 : 1.5,
+      fillColor: CAT_COLOR[catOf(p)], fillOpacity: on ? 1 : 0.85 });
+    m.bindTooltip(p.name);
+    m.on("click", () => { on ? picked.delete(pkey(p)) : picked.add(pkey(p)); renderCity(); });
+    mapLayer.addLayer(m);
+  });
+  // Zoom to the pins only when the city, the filter or the pin count changes, so a tap does not move the map.
+  const k = `${curCity}|${catFilter}|${ps.length}`;
+  if (k !== mapFitFor) { mapFitFor = k; map.fitBounds(L.latLngBounds(ps.map(p => [p.lat, p.lon])).pad(0.15), { maxZoom: 16 }); }
 }
 // Search text for a place: name + saved address (a picked branch), else name + city.
 function placeQ(p, city) { return p.addr ? `${p.name}, ${p.addr}` : city ? `${p.name}, ${city}` : p.name; }
@@ -627,6 +673,7 @@ function render() {
   const ol = $("list");
   ol.innerHTML = "";
   const n = list().length;
+  $("bestBtn").hidden = n < 3;
   if (!n) { ol.innerHTML = `<li class="empty">No places yet.</li>`; return; }
   list().forEach((p, i) => {
     const li = document.createElement("li");
@@ -771,6 +818,30 @@ function km(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+// ---- Best order: shortest walk. Keeps the first stop; nearest next stop, then 2-opt swaps. ----
+function routeKm(ps) {
+  let d = 0;
+  for (let i = 0; i < ps.length - 1; i++) if (typeof ps[i].lat === "number" && typeof ps[i + 1].lat === "number") d += km(ps[i], ps[i + 1]);
+  return d;
+}
+function bestOrder(ps) {
+  const pts = ps.filter(p => typeof p.lat === "number"), rest = ps.filter(p => typeof p.lat !== "number");
+  if (pts.length < 3) return ps;
+  const order = [pts[0]], left = pts.slice(1);
+  while (left.length) {
+    const last = order[order.length - 1]; let bi = 0;
+    left.forEach((p, i) => { if (km(last, p) < km(last, left[bi])) bi = i; });
+    order.push(left.splice(bi, 1)[0]);
+  }
+  for (let better = true; better;) {
+    better = false;
+    for (let i = 1; i < order.length - 1; i++) for (let j = i + 1; j < order.length; j++) {
+      const t = order.slice(0, i).concat(order.slice(i, j + 1).reverse(), order.slice(j + 1));
+      if (routeKm(t) < routeKm(order) - 1e-9) { order.splice(0, order.length, ...t); better = true; }
+    }
+  }
+  return order.concat(rest); // places without a map point stay at the end
+}
 async function start() {
   if (!state.places.length) { setStatus("Add places first."); return; }
   $("startBtn").disabled = true;
@@ -965,6 +1036,19 @@ async function geocode(place, city) {
 
 // ---- Wire up ----
 $("startBtn").onclick = start;
+$("bestBtn").onclick = async () => {
+  const before = state.places.map(p => p.name).join("|"), km0 = routeKm(state.places);
+  state.places = bestOrder(state.places);
+  const noPt = state.places.filter(p => typeof p.lat !== "number").length;
+  if (state.places.map(p => p.name).join("|") === before) {
+    setStatus("Already in the best order." + (noPt ? ` ${noPt} place(s) have no map point: tap Get descriptions first.` : "")); return;
+  }
+  $("bestBtn").disabled = true;
+  await buildCityLegs(); save(); render();
+  const fmt = (d) => d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
+  setStatus(`New order: about ${fmt(routeKm(state.places))} in a straight line, was ${fmt(km0)}.` + (noPt ? ` ${noPt} place(s) without a map point are at the end.` : ""));
+  $("bestBtn").disabled = false;
+};
 $("mapBtn").onclick = () => {
   if (list().length < 2) { setStatus("Add at least 2 places."); return; }
   if (list().length > MAX_STOPS) setStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
