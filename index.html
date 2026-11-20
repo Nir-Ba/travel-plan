@@ -259,7 +259,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.6.0";
+const APP_VERSION = "2.6.1";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -921,7 +921,21 @@ async function cityGeo(name) {
       if (f) return { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], cc: (f.properties.countrycode || "").toUpperCase() };
     } catch (e) { console.warn("cityGeo failed", name, e); }
   }
+  // Photon is down or found nothing: ask Nominatim (also OpenStreetMap). Its rules allow 1 request per second.
+  try {
+    await nomWait();
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=" + encodeURIComponent(name));
+    const j = r.ok ? await r.json() : [];
+    if (j[0]) return { lat: parseFloat(j[0].lat), lon: parseFloat(j[0].lon), cc: ((j[0].address || {}).country_code || "").toUpperCase() };
+    console.warn("cityGeo: not found", name);
+  } catch (e) { console.warn("cityGeo: Nominatim failed", name, e); }
   return null;
+}
+let nomLast = 0; // time of the last Nominatim request
+async function nomWait() {
+  const wait = nomLast + 1100 - Date.now();
+  nomLast = Math.max(Date.now(), nomLast + 1100);
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
 }
 
 const legKey = (a, b) => `${a.name}|${b.name}`;
@@ -1009,6 +1023,7 @@ async function photon(q, bias) {
   return f ? { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] } : null;
 }
 async function nominatim(q) {
+  await nomWait();
   const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(q));
   if (!r.ok) return null;
   const j = await r.json();
