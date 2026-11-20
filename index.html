@@ -12,7 +12,6 @@
   :root {
     --bg: #f4f2ee; --card: #ffffff; --ink: #1d1d1f; --muted: #6e6e73;
     --line: #e2dfd8; --accent: #0a7c6e; --accent-ink: #ffffff; --danger: #c0392b;
-    --tag-m: #e8a33d; --tag-a: #2f80c4; --tag-e: #7b4fb5;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -54,11 +53,9 @@
   }
   .body { flex: 1; min-width: 0; }
   .name { display: block; font-weight: 600; font-size: 17px; word-wrap: break-word; color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
-  .tag { font-size: 12px; font-weight: 700; letter-spacing: .08em; margin-top: 2px; }
-  .tag.MORNING { color: var(--tag-m); } .tag.AFTERNOON { color: var(--tag-a); } .tag.EVENING { color: var(--tag-e); }
   .desc { color: var(--muted); font-size: 15px; margin-top: 2px; }
   .desc a { color: var(--accent); text-decoration: none; }
-  .ctrls { display: flex; flex-direction: column; gap: 4px; }
+  .ctrls { display: grid; grid-template-columns: repeat(2, auto); gap: 4px; }
   .ctrls button { padding: 6px 10px; font-size: 15px; min-width: 40px; }
   .ctrls button.del { color: var(--danger); }
   .empty { color: var(--muted); text-align: center; padding: 20px 0; }
@@ -69,12 +66,16 @@
   .seg button.on { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
   li.leg { margin: -4px 0 10px 24px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--card); border-radius: 0 12px 12px 0; }
   .leghead { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+  /* Between stops: one short line; tap it for all options */
+  details.legd summary { list-style: none; cursor: pointer; font-weight: 600; font-size: 15px; display: flex; gap: 6px; align-items: baseline; }
+  details.legd summary::-webkit-details-marker { display: none; }
+  details.legd summary .more { margin-left: auto; color: var(--muted); font-size: 13px; font-weight: 500; }
+  details.legd[open] summary { margin-bottom: 6px; }
+  details.legd[open] summary .more { visibility: hidden; }
   .opt { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
   .opt:first-of-type { border-top: 0; }
   .optname { font-weight: 600; }
   .price { font-weight: 600; text-align: right; font-size: 15px; white-space: pre; }
-  li.place.compact { align-items: center; }
-  li.place.compact .ctrls { flex-direction: row; }
   .badge { font-size: 11px; font-weight: 700; margin-left: 6px; padding: 2px 6px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); vertical-align: 2px; }
   .links { margin-top: 6px; }
   .links a { color: var(--accent); text-decoration: none; font-weight: 600; }
@@ -93,6 +94,15 @@
   .tile .tname { font-size: 17px; font-weight: 700; word-break: break-word; }
   .tile .tcount { font-size: 13px; color: var(--muted); font-weight: 500; }
   .tile.add { border-style: dashed; background: transparent; color: var(--muted); }
+  /* Cities with no places yet, and the add tile: small, at the end */
+  .tile.small { aspect-ratio: auto; flex-direction: row; justify-content: flex-start; gap: 8px; padding: 10px 12px; text-align: left; }
+  .tile.small .flag { font-size: 22px; }
+  .smallgrid { grid-column: 1 / -1; }
+  .tile.small .tname { font-size: 15px; }
+  .hometop { display: flex; justify-content: space-between; align-items: center; }
+  .hometop h1 { margin-bottom: 12px; }
+  #setBtn { background: transparent; font-size: 22px; padding: 6px 8px; color: var(--muted); }
+  #citySearch { margin-bottom: 10px; }
   /* City page */
   .topbar { display: flex; justify-content: space-between; align-items: center; }
   button.back { background: transparent; color: var(--accent); padding: 8px 0; }
@@ -110,11 +120,16 @@
   #favPlaces { list-style: none; padding: 0; margin: 0; }
   li.fplace { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; }
   li.fplace input[type=checkbox] { width: 22px; height: 22px; flex: 0 0 22px; accent-color: var(--accent); }
-  textarea.note { display: block; width: 100%; min-height: 0; margin-top: 6px; padding: 6px 8px; font-size: 14px; line-height: 1.35;
-    color: var(--muted); background: transparent; border: 1px dashed var(--line); border-radius: 8px; resize: none; overflow: hidden; }
-  textarea.note:focus { color: var(--ink); border-style: solid; border-color: var(--accent); outline: none; }
-  .catsel { width: auto; font-size: 13px; padding: 4px 8px; margin-top: 6px; border-radius: 8px; }
-  li.fplace button.del { padding: 6px 10px; background: transparent; }
+  /* A place row: tap it to open the place panel */
+  button.prow { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: transparent; padding: 2px 0; text-align: left; border-radius: 0; }
+  .prow .ptxt { flex: 1; min-width: 0; }
+  .prow .pname { display: block; font-size: 17px; font-weight: 600; word-wrap: break-word; }
+  .prow .psub { display: block; font-size: 14px; font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prow .chev { color: var(--muted); font-size: 20px; font-weight: 400; }
+  button.fab { flex: 0 0 52px; border-radius: 50%; font-size: 26px; font-weight: 400; padding: 0; height: 52px; align-self: center; }
+  #placeDlg textarea { min-height: 90px; }
+  #placeDlg a.btnlink { display: block; text-align: center; padding: 12px; border-radius: 12px; background: var(--line); color: var(--ink); font-weight: 600; text-decoration: none; }
+  #placeDlg button.del { background: transparent; }
   /* Import from Google Maps: how-to shows on hover (Mac) or on ⓘ tap (iPhone) */
   .impwrap { position: relative; display: flex; gap: 8px; }
   .impwrap #impBtn { flex: 1; }
@@ -128,14 +143,15 @@
 <body>
 <main>
 <section id="homeView">
-  <h1>Travel Plan <span id="ver" style="font-size:13px;font-weight:500;color:var(--muted);letter-spacing:0"></span></h1>
-  <div class="grid" id="cityGrid"></div>
-  <div class="section" style="margin-top:16px">
+  <div class="hometop">
+    <h1>Travel Plan <span id="ver" style="font-size:13px;font-weight:500;color:var(--muted);letter-spacing:0"></span></h1>
+    <button id="setBtn" aria-label="Import and backup" aria-expanded="false" title="Import and backup">⚙︎</button>
+  </div>
+  <div class="section" id="setPanel" hidden>
     <div class="imp">
     <div class="impwrap">
       <button id="impBtn" title="Import the reviewed spreadsheet of your Google Maps places">📥 Import from Maps</button>
       <button id="impInfoBtn" aria-label="How to get the export" aria-expanded="false">ⓘ</button>
-      <button id="backupBtn" title="Copy all saved places as text. Paste it in Notes to keep a backup.">💾 Backup</button>
     </div>
     <div class="info" id="impInfo" hidden>
       <b>How to import your Google Maps places</b>
@@ -149,9 +165,12 @@
       <div class="fine">Places you already saved are skipped, so you can import again after more fixes.</div>
     </div>
     </div>
+    <button id="backupBtn" style="width:100%;margin-top:8px" title="Copy all saved places as text. Paste it in Notes to keep a backup.">💾 Copy backup</button>
     <input type="file" id="impFile" accept=".csv,text/csv" hidden>
-    <div class="status" id="homeStatus"></div>
   </div>
+  <div class="status" id="homeStatus"></div>
+  <input id="citySearch" type="search" placeholder="Search cities" aria-label="Search cities" autocomplete="off" hidden>
+  <div class="grid" id="cityGrid"></div>
 </section>
 
 <section id="cityView" hidden>
@@ -160,7 +179,7 @@
     <button id="cityDel" class="small del">Remove city</button>
   </div>
   <h1 id="cityTitle"></h1>
-  <div class="section">
+  <div class="section" id="addBox" hidden>
     <label class="small" for="newFav">Add a favorite place</label>
     <input id="newFav" placeholder="Type a place name" autocomplete="off">
     <ul id="sug" class="sug" hidden></ul>
@@ -179,6 +198,7 @@
   <div class="actions">
     <div class="status" id="cityStatus"></div>
     <div class="row">
+      <button class="fab primary" id="addFab" aria-label="Add a place" aria-expanded="false">＋</button>
       <button class="primary" id="gmapBtn">Show on Google Maps</button>
       <button class="primary" id="routeBtn">Plan route</button>
     </div>
@@ -189,26 +209,32 @@
   <div class="topbar"><button id="planBack" class="back">‹ Back</button></div>
   <h1 id="planTitle">Route</h1>
 
-  <div class="section">
-    <label class="small" for="newPlace" id="addLbl">Add places (one per line)</label>
-    <textarea id="newPlace" rows="2" placeholder="Ueno Park&#10;Senso-ji"></textarea>
-    <div class="row" style="margin-top:8px">
-      <button id="addBtn">Add</button>
-      <button id="clearBtn">Clear list</button>
-    </div>
-  </div>
-
+  <p class="fine" style="margin:-8px 0 12px">To add or remove places, go back to the city page and choose them there.</p>
   <ol id="list"></ol>
 
   <div class="actions">
     <div class="status" id="status"></div>
     <div class="row">
-      <button class="primary" id="startBtn">Start</button>
+      <button class="primary" id="startBtn">Get descriptions</button>
       <button class="primary" id="mapBtn">To map</button>
     </div>
   </div>
 </section>
 </main>
+
+<dialog id="placeDlg">
+  <h2 id="pdName"></h2>
+  <div class="fine" id="pdAddr" style="margin:-8px 0 10px"></div>
+  <div class="stack">
+    <label class="small" for="pdNote">Note</label>
+    <textarea id="pdNote" rows="3" placeholder="Add a note"></textarea>
+    <label class="small" for="pdCat">Category</label>
+    <select id="pdCat"></select>
+    <a id="pdMap" class="btnlink" target="_blank" rel="noopener">Open in Google Maps</a>
+    <button class="primary" id="pdDone" autofocus>Done</button>
+    <button class="del" id="pdDel">Delete this place</button>
+  </div>
+</dialog>
 
 <dialog id="mapDlg">
   <h2>Open in Google Maps</h2>
@@ -230,7 +256,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.4.0";
+const APP_VERSION = "2.5.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -242,7 +268,7 @@ const list = () => state.places;
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && Array.isArray(s.places)) state = { city: s.city || "", places: s.places, legs: {},
+    if (s && Array.isArray(s.places)) state = { city: s.city || "", places: s.places, legs: s.legs || {},
       cityCC: s.cityCC, cityCCFor: s.cityCCFor, lastLeg: s.lastLeg };
   } catch (e) { console.warn("load: route state unreadable", e); }
 }
@@ -330,27 +356,36 @@ async function fillFlags() {
   saveFavs();
   if (view() === "home") renderHome();
 }
+function tile(c, n, small) {
+  const b = document.createElement("button"); b.className = small ? "tile small" : "tile";
+  const parts = [["flag", flag(c.cc)], ["tname", c.name]];
+  if (!small) parts.push(["tcount", n === 1 ? "1 place" : `${n} places`]);
+  for (const [cls, txt] of parts) { const s = document.createElement("span"); s.className = cls; s.textContent = txt; b.appendChild(s); }
+  b.onclick = () => go("city", c.name);
+  return b;
+}
+// Cities with places first (big squares), then cities with no places yet (small), then "Add city".
 function renderHome() {
   const g = $("cityGrid"); g.innerHTML = "";
   const counts = new Map();
   for (const p of favs.places) { const k = ckey("", p.city); counts.set(k, (counts.get(k) || 0) + 1); }
-  favCities().forEach(c => {
-    const n = counts.get(ckey("", c.name)) || 0;
-    const b = document.createElement("button"); b.className = "tile";
-    for (const [cls, txt] of [["flag", flag(c.cc)], ["tname", c.name], ["tcount", n === 1 ? "1 place" : `${n} places`]]) {
-      const s = document.createElement("span"); s.className = cls; s.textContent = txt; b.appendChild(s);
-    }
-    b.onclick = () => go("city", c.name);
-    g.appendChild(b);
-  });
-  const add = document.createElement("button"); add.className = "tile add";
+  const all = favCities(), q = $("citySearch").value.trim().toLowerCase();
+  $("citySearch").hidden = all.length <= 8 && !q;
+  const shown = q ? all.filter(c => c.name.toLowerCase().includes(q)) : all;
+  const n = (c) => counts.get(ckey("", c.name)) || 0;
+  shown.filter(c => n(c)).forEach(c => g.appendChild(tile(c, n(c), false)));
+  const sg = document.createElement("div"); sg.className = "grid smallgrid"; // own rows, so small tiles never stretch
+  shown.filter(c => !n(c)).forEach(c => sg.appendChild(tile(c, 0, true)));
+  g.appendChild(sg);
+  if (q && !shown.length) { const e = document.createElement("div"); e.className = "empty"; e.textContent = `No city matches "${q}".`; g.appendChild(e); }
+  const add = document.createElement("button"); add.className = "tile add small";
   add.innerHTML = `<span class="flag">＋</span><span class="tname">Add city</span>`;
   add.onclick = () => {
     const name = (prompt("City name, e.g. Tokyo") || "").trim();
     if (!name) return;
     cityRec(name); saveFavs(); go("city", name);
   };
-  g.appendChild(add);
+  sg.appendChild(add);
   fillFlags();
 }
 
@@ -375,43 +410,48 @@ function renderCity() {
   });
   chips.hidden = !ps.length;
   const ul = $("favPlaces"); ul.innerHTML = "";
-  if (!ps.length) ul.innerHTML = `<li class="empty">No places yet. Add one above.</li>`;
-  const notes = [];
+  if (!ps.length) ul.innerHTML = `<li class="empty">No places yet. Type a name above to add one.</li>`;
   shownPlaces().forEach(p => {
     const li = document.createElement("li"); li.className = "fplace";
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = picked.has(pkey(p));
     cb.setAttribute("aria-label", "Choose " + p.name);
     cb.onchange = () => { cb.checked ? picked.add(pkey(p)) : picked.delete(pkey(p)); syncPick(); };
-    const body = document.createElement("div"); body.className = "body";
-    body.appendChild(extLink(p.name, p.gurl || gSearch(placeQ(p, curCity)))).className = "name";
-    if (p.addr) { const a = document.createElement("div"); a.className = "fine"; a.textContent = p.addr; body.appendChild(a); }
-    // Note: shows the imported text; tap to edit. Saved when you leave the box.
-    const note = document.createElement("textarea"); note.className = "note"; note.rows = 1;
-    note.value = p.note || ""; note.placeholder = "＋ Add a note"; note.setAttribute("aria-label", "Note for " + p.name);
-    const fit = () => { note.style.height = "auto"; note.style.height = note.scrollHeight + "px"; };
-    note.oninput = fit; notes.push(note);
-    note.onchange = () => { const v = note.value.trim(); if (v) p.note = v; else delete p.note; if (saveFavs()) cityStatus(`Note saved for "${p.name}".`); };
-    body.appendChild(note);
-    const sel = document.createElement("select"); sel.className = "catsel"; sel.setAttribute("aria-label", "Category of " + p.name);
-    sel.innerHTML = CAT_OPTIONS;
-    sel.value = catOf(p);
-    sel.onchange = () => { p.cat = sel.value; saveFavs(); renderCity(); };
-    body.appendChild(sel);
-    const del = btn("✕", "Remove from favorites", () => {
-      if (!confirm(`Remove "${p.name}" from favorites?`)) return;
-      favs.places.splice(favs.places.indexOf(p), 1); picked.delete(pkey(p)); saveFavs(); renderCity();
-    });
-    del.className = "del";
-    li.append(cb, body, del);
+    // Name, then category and the first line of the note. Tap to open the place panel.
+    const row = document.createElement("button"); row.className = "prow"; row.setAttribute("aria-label", "Open " + p.name);
+    const txt = document.createElement("span"); txt.className = "ptxt";
+    const nm = document.createElement("span"); nm.className = "pname"; nm.textContent = p.name;
+    const sub = document.createElement("span"); sub.className = "psub";
+    sub.textContent = `${CAT_ICON[catOf(p)]} ${catOf(p)}` + (p.note ? " · " + p.note.split("\n")[0] : "");
+    txt.append(nm, sub);
+    const chev = document.createElement("span"); chev.className = "chev"; chev.textContent = "›";
+    row.append(txt, chev);
+    row.onclick = () => openPlace(p);
+    li.append(cb, row);
     ul.appendChild(li);
   });
-  // Size all notes in one layout pass: reset all, read all, write all.
-  requestAnimationFrame(() => {
-    notes.forEach(n => n.style.height = "auto");
-    const h = notes.map(n => n.scrollHeight);
-    notes.forEach((n, i) => n.style.height = h[i] + "px");
-  });
   syncPick();
+}
+// ---- Place panel: note, category, Google Maps, delete ----
+let curPlace = null;
+function openPlace(p) {
+  curPlace = p;
+  $("pdName").textContent = p.name;
+  $("pdAddr").textContent = p.addr || ""; $("pdAddr").hidden = !p.addr;
+  $("pdNote").value = p.note || "";
+  $("pdCat").value = catOf(p);
+  $("pdMap").href = p.gurl || gSearch(placeQ(p, curCity));
+  $("placeDlg").showModal();
+}
+// Saved when the panel closes: Done, Escape or a tap outside.
+function closePlace() {
+  const p = curPlace; curPlace = null;
+  if (!p || !favs.places.includes(p)) return;
+  const v = $("pdNote").value.trim(), cat = $("pdCat").value;
+  if (v === (p.note || "") && cat === catOf(p)) return; // nothing changed
+  if (v) p.note = v; else delete p.note;
+  p.cat = cat;
+  if (saveFavs()) cityStatus(`Saved "${p.name}".`);
+  renderCity();
 }
 function syncPick() {
   const n = chosen().length;
@@ -575,17 +615,12 @@ function route() {
     let c; try { c = decodeURIComponent(location.hash.slice(6)); } catch (e) { return go("home"); } // broken link
     if (!same(c, curCity)) { curCity = c; catFilter = "All"; picked = new Set(); sugPick = null; }
     $("newFav").value = ""; hideSug(); cityStatus("");
+    if ($("placeDlg").open) $("placeDlg").close();
+    showAdd(!cityPlaces().length, false); // a new city opens with the add form
     renderCity();
   } else if (v === "plan") applyMode();
   else renderHome();
   window.scrollTo(0, 0);
-}
-
-// MORNING / AFTERNOON / EVENING by position in the list (split in thirds).
-function timeTag(i, n) {
-  if (n <= 1) return "MORNING";
-  const f = i / n;
-  return f < 1/3 ? "MORNING" : f < 2/3 ? "AFTERNOON" : "EVENING";
 }
 
 function render() {
@@ -602,14 +637,12 @@ function render() {
     name.href = placeUrl(p); name.target = "_blank"; name.rel = "noopener";
     body.appendChild(name);
     if (p.desc !== undefined) {
-      const tag = timeTag(i, n);
-      const t = document.createElement("div"); t.className = "tag " + tag; t.textContent = tag;
       const d = document.createElement("div"); d.className = "desc"; d.textContent = p.desc || "No description found.";
       if (p.url) {
         const a = document.createElement("a"); a.href = p.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = " More";
         d.appendChild(a);
       }
-      body.append(t, d);
+      body.append(d);
     }
     const c = document.createElement("div"); c.className = "ctrls";
     const up = btn("▲", "Move up", () => move(i, -1)); up.disabled = i === 0;
@@ -634,13 +667,24 @@ const ICON = { metro: "🚇", bus: "🚌", walk: "🚶" };
 function renderLeg(leg) {
   const li = document.createElement("li");
   li.className = "leg";
-  const h = document.createElement("div"); h.className = "leghead";
-  h.textContent = `${leg.from} → ${leg.to}` + (typeof leg.km === "number" ? (leg.km < 1 ? ` · about ${Math.max(100, Math.round(leg.km * 10) * 100)} m` : ` · about ${Math.round(leg.km)} km`) : "");
-  li.appendChild(h);
+  const dist = typeof leg.km === "number" ? (leg.km < 1 ? `${Math.max(100, Math.round(leg.km * 10) * 100)} m` : `${Math.round(leg.km)} km`) : "";
   if (leg.error) {
-    const e = document.createElement("div"); e.className = "desc"; e.textContent = leg.error; li.appendChild(e);
+    const e = document.createElement("div"); e.className = "desc"; e.textContent = `${leg.from} → ${leg.to}: ${leg.error}`; li.appendChild(e);
   }
   const opts = leg.options || [];
+  // The short line: walk when it takes 20 min or less, else the fastest way.
+  const walk = opts.find(o => o.kind === "walk");
+  const best = walk && walk.min <= 20 ? walk : opts[0];
+  const box = document.createElement("details"); box.className = "legd";
+  const sum = document.createElement("summary");
+  if (best) {
+    sum.textContent = `${ICON[best.kind]} ${best.label.split(" /")[0]} ${fmtTime(best.min).replace("≈ ", "")}` + (dist ? ` · ${dist}` : "") + (best.usd ? ` · ${fmtPrice(best.usd, leg.cur).split("\n")[0]}` : "");
+  } else sum.textContent = `${leg.from} → ${leg.to}` + (dist ? ` · ${dist}` : "");
+  const more = document.createElement("span"); more.className = "more"; more.textContent = "›";
+  sum.appendChild(more);
+  box.appendChild(sum); li.appendChild(box);
+  const leghead = document.createElement("div"); leghead.className = "leghead"; leghead.textContent = `${leg.from} → ${leg.to}`;
+  box.appendChild(leghead);
   const fastest = opts.length ? Math.min(...opts.map(o => o.min)) : 0;
   const cheapest = opts.length ? Math.min(...opts.map(o => o.usd)) : 0;
   opts.forEach(o => {
@@ -653,17 +697,17 @@ function renderLeg(leg) {
     l.append(t, s);
     const p = document.createElement("div"); p.className = "price"; p.textContent = o.usd === 0 ? "Free" : fmtPrice(o.usd, leg.cur);
     r.append(l, p);
-    li.appendChild(r);
+    box.appendChild(r);
   });
-  if (leg.note) { const nt = document.createElement("div"); nt.className = "desc"; nt.textContent = leg.note; li.appendChild(nt); }
+  if (leg.note) { const nt = document.createElement("div"); nt.className = "desc"; nt.textContent = leg.note; li.insertBefore(nt, box); }
   const links = document.createElement("div"); links.className = "desc links";
   const fq = leg.fromQ || leg.from, tq = leg.toQ || leg.to;
   links.append("Real routes: ");
   links.appendChild(extLink("Google Maps", dirUrl([fq, tq], "transit")));
-  li.appendChild(links);
+  box.appendChild(links);
   const fine = document.createElement("div"); fine.className = "fine";
   fine.textContent = "Rough estimate per person, one way, from distance. Real prices can differ a lot. Metro only if the city has one.";
-  li.appendChild(fine);
+  box.appendChild(fine);
   return li;
 }
 function badge(t) { const b = document.createElement("span"); b.className = "badge"; b.textContent = t; return b; }
@@ -920,15 +964,6 @@ async function geocode(place, city) {
 }
 
 // ---- Wire up ----
-$("addBtn").onclick = () => {
-  const lines = $("newPlace").value.split("\n").map(s => s.trim()).filter(Boolean);
-  if (!lines.length) return;
-  lines.forEach(name => list().push({ name }));
-  $("newPlace").value = ""; save(); render(); setStatus("");
-};
-$("clearBtn").onclick = () => {
-  if (list().length && confirm("Remove all?")) { list().length = 0; state.legs = {}; save(); render(); }
-};
 $("startBtn").onclick = start;
 $("mapBtn").onclick = () => {
   if (list().length < 2) { setStatus("Add at least 2 places."); return; }
@@ -976,6 +1011,10 @@ $("gBtn").onclick = () => { rememberLeg(); location.href = googleUrl($("mode").v
 $("cancelBtn").onclick = () => $("mapDlg").close();
 
 // Home
+$("setBtn").onclick = () => {
+  const open = $("setPanel").hidden; $("setPanel").hidden = !open; $("setBtn").setAttribute("aria-expanded", String(open));
+};
+$("citySearch").addEventListener("input", renderHome);
 $("impBtn").onclick = () => $("impFile").click();
 $("impInfoBtn").onclick = () => {
   const open = $("impInfo").hidden; $("impInfo").hidden = !open; $("impInfoBtn").setAttribute("aria-expanded", String(open));
@@ -994,7 +1033,20 @@ $("backupBtn").onclick = async () => {
   catch (e) { console.error("backup copy failed", e); homeStatus("Could not copy. Your browser blocked the clipboard."); }
 };
 // City page
-$("newCat").innerHTML = CAT_OPTIONS;
+$("newCat").innerHTML = CAT_OPTIONS; $("pdCat").innerHTML = CAT_OPTIONS;
+function showAdd(open, focus = true) {
+  $("addBox").hidden = !open; $("addFab").textContent = open ? "−" : "＋";
+  $("addFab").setAttribute("aria-expanded", String(open)); $("addFab").setAttribute("aria-label", open ? "Close the add form" : "Add a place");
+  if (open && focus) { $("newFav").focus(); window.scrollTo(0, 0); } else if (!open) hideSug();
+}
+$("addFab").onclick = () => showAdd($("addBox").hidden);
+$("placeDlg").addEventListener("close", closePlace);
+$("pdDone").onclick = () => $("placeDlg").close();
+$("pdDel").onclick = () => {
+  const p = curPlace; if (!p || !confirm(`Delete "${p.name}"?`)) return;
+  curPlace = null; favs.places.splice(favs.places.indexOf(p), 1); picked.delete(pkey(p));
+  saveFavs(); $("placeDlg").close(); renderCity(); cityStatus(`Deleted "${p.name}".`);
+};
 $("newCat").value = "Other";
 $("cityBack").onclick = () => go("home");
 $("cityDel").onclick = () => {
