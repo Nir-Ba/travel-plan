@@ -14,7 +14,7 @@ Map search: Photon (OpenStreetMap, free, no key). Results are cached in
 """
 import csv, json, math, os, re, sys, time, urllib.parse, urllib.request
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 UA = "TravelPlan-import/" + VERSION
 
 # Hebrew / other list names -> what the list is.
@@ -65,8 +65,9 @@ def km(a, b):
 
 # ---- Photon with a disk cache ----
 cache, cache_path, calls = {}, "", 0
+net_failed = False  # set when a lookup gave up; the row then says "run again", not a plain NOT FOUND
 def photon(path, params):
-    global calls
+    global calls, net_failed
     url = "https://photon.komoot.io/" + path + "?" + urllib.parse.urlencode(params, doseq=True)
     if url in cache: return cache[url]
     for attempt in range(3):
@@ -79,11 +80,15 @@ def photon(path, params):
             if calls % 25 == 0: save_cache()
             return feats
         except Exception as e:
-            print(f"  photon retry {attempt + 1}: {e}", file=sys.stderr); time.sleep(2 * (attempt + 1))
+            print(f"  photon retry {attempt + 1}: {e}", file=sys.stderr)
+            if attempt < 2: time.sleep(2 * (attempt + 1))
+    net_failed = True  # not cached, so the next run tries again
     return []
 
 def save_cache():
-    with open(cache_path, "w") as f: json.dump(cache, f)
+    tmp = cache_path + ".tmp"
+    with open(tmp, "w") as f: json.dump(cache, f)
+    os.replace(tmp, cache_path)  # atomic: a stop mid-write never leaves half a file
 
 def city_of(p):
     """City name from Photon properties. Tokyo's wards count as Tokyo."""
@@ -145,15 +150,21 @@ def read_list(path):
     return out
 
 def main():
-    global cache, cache_path
+    global cache, cache_path, net_failed
     root = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/Downloads/Takeout")
     print(f"takeout_to_sheet {VERSION}: reading {root}")
     cache_path = os.path.join(root, ".travelplan-cache.json")
     if os.path.exists(cache_path):
-        cache = json.load(open(cache_path)); print(f"  cache: {len(cache)} earlier answers")
+        try:
+            with open(cache_path) as f: cache = json.load(f)
+            print(f"  cache: {len(cache)} earlier answers")
+        except (OSError, ValueError) as e:
+            print(f"  cache unreadable ({e}); starting fresh", file=sys.stderr)
     rows = []
 
     def add(name, note, src, url, city, cat, check, found="", ll=None):
+        global net_failed
+        if net_failed: check = "NOT FOUND: lookup failed (network), run the script again"; net_failed = False
         rows.append({"Include": "yes", "City": city, "Category": cat, "Name": name, "Note": note, "Check": check,
                      "Found on map": found, "Source list": src,
                      "Lat": f"{ll[0]:.6f}" if ll else "", "Lon": f"{ll[1]:.6f}" if ll else "", "Google link": url})
@@ -169,6 +180,7 @@ def main():
         items = read_list(os.path.join(sdir, fn))
         print(f"- {lst}: {len(items)} place(s), list type {kind[0]}")
         for it in items:
+            net_failed = False
             ll = ll_from_url(it["url"])
             if kind[0] == "city":
                 c = centre(kind[1])
@@ -200,9 +212,10 @@ def main():
     # 2. Starred places (have a point + address)
     sp = os.path.join(root, "Maps (your places)", "Saved Places.json")
     if os.path.exists(sp):
-        feats = json.load(open(sp, encoding="utf-8")).get("features", [])
+        with open(sp, encoding="utf-8") as fh: feats = json.load(fh).get("features", [])
         print(f"- Starred places: {len(feats)} place(s)")
         for f in feats:
+            net_failed = False
             pr = f.get("properties", {}); loc = pr.get("location", {}); c = f.get("geometry", {}).get("coordinates") or [0, 0]
             url = pr.get("google_maps_url", "")
             ll = (c[1], c[0]) if c != [0, 0] else ll_from_url(url)
@@ -236,6 +249,8 @@ def main():
     print(f"\nWrote {len(rows)} rows to {out}")
     write_xlsx(rows, os.path.join(root, "Travel Plan import.xlsx"))
     print(f"  OK: {n('OK')}   CHECK: {n('CHECK')}   NOT FOUND: {n('NOT')}   (Photon calls this run: {calls})")
+    failed = sum(1 for r in rows if "lookup failed" in r["Check"])
+    if failed: print(f"  {failed} row(s) failed on the network. Run the script again: the cache keeps the rest.")
 
 APP_CATS = ["Restaurant", "Café", "Bar", "Park", "Museum", "Sight", "Shop", "Hotel", "Other"]
 
@@ -245,18 +260,22 @@ def write_xlsx(rows, path):
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment
         from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.utils import get_column_letter
     except ImportError:
         print("  skipped Excel file: openpyxl is not installed (pip3 install openpyxl)", file=sys.stderr); return
     if not rows: print("  skipped Excel file: no rows", file=sys.stderr); return
     wb = Workbook(); ws = wb.active; ws.title = "Places"
     cols = list(rows[0].keys()); ws.append(cols)
     for r in rows: ws.append([r[c] for c in cols])
+    for row in ws.iter_rows(min_row=2):  # a note that starts with "=" is text, not a formula
+        for c in row:
+            if c.data_type == "f": c.data_type = "s"
     n = len(rows) + 1
-    ws.freeze_panes = "A2"; ws.auto_filter.ref = f"A1:{chr(64 + len(cols))}{n}"
+    ws.freeze_panes = "A2"; ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{n}"
     for c in ws[1]: c.font = Font(bold=True)
     widths = {"Include": 9, "City": 18, "Category": 13, "Name": 34, "Note": 30, "Check": 34, "Found on map": 40,
               "Source list": 18, "Lat": 11, "Lon": 11, "Google link": 14}
-    for i, c in enumerate(cols, 1): ws.column_dimensions[chr(64 + i)].width = widths.get(c, 14)
+    for i, c in enumerate(cols, 1): ws.column_dimensions[get_column_letter(i)].width = widths.get(c, 14)
     fills = {"NOT": PatternFill("solid", fgColor="F8D7D3"), "CHE": PatternFill("solid", fgColor="FFF1C2")}
     gl = cols.index("Google link") + 1
     for i, r in enumerate(rows, 2):
@@ -265,13 +284,15 @@ def write_xlsx(rows, path):
             for c in ws[i]: c.fill = f
         if not r["City"]: ws.cell(i, cols.index("City") + 1).fill = PatternFill("solid", fgColor="F0A39A")
         link = ws.cell(i, gl)
-        if r["Google link"]: link.hyperlink = r["Google link"]; link.font  # keep the URL as the value: the app reads it from the CSV = Font(color="0A7C6E", underline="single")
+        if r["Google link"]:
+            link.hyperlink = r["Google link"]  # the value stays the URL: the app reads it from the CSV
+            link.font = Font(color="0A7C6E", underline="single")
         for c in ws[i]: c.alignment = Alignment(vertical="top")
     # Dropdowns. City allows new names too (no error), Include and Category do not.
     cities = sorted({r["City"] for r in rows if r["City"]}, key=str.lower)
     cs = wb.create_sheet("Cities")
     for c in cities: cs.append([c])
-    col = lambda name: chr(64 + cols.index(name) + 1)
+    col = lambda name: get_column_letter(cols.index(name) + 1)
     dv_inc = DataValidation(type="list", formula1='"yes,no"', allow_blank=True)
     dv_cat = DataValidation(type="list", formula1='"' + ",".join(APP_CATS) + '"', allow_blank=True)
     dv_city = DataValidation(type="list", formula1=f"Cities!$A$1:$A${max(1, len(cities))}", allow_blank=True, showErrorMessage=False)

@@ -135,6 +135,7 @@
     <div class="impwrap">
       <button id="impBtn" title="Import the reviewed spreadsheet of your Google Maps places">📥 Import from Maps</button>
       <button id="impInfoBtn" aria-label="How to get the export" aria-expanded="false">ⓘ</button>
+      <button id="backupBtn" title="Copy all saved places as text. Paste it in Notes to keep a backup.">💾 Backup</button>
     </div>
     <div class="info" id="impInfo" hidden>
       <b>How to import your Google Maps places</b>
@@ -229,59 +230,68 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.4.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
 
-// mode "city": places inside one city. mode "trip": travel between cities.
-let state = { mode: "city", city: "", places: [], cities: [], legs: {} };
-const isTrip = () => state.mode === "trip";
-const list = () => (isTrip() ? state.cities : state.places);
+// The route on the plan page: places inside one city.
+let state = { city: "", places: [], legs: {} };
+const list = () => state.places;
 
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && Array.isArray(s.places)) state = Object.assign(state, s);
-  } catch (e) {}
-  if (!Array.isArray(state.cities)) state.cities = [];
-  if (!state.legs) state.legs = {};
+    if (s && Array.isArray(s.places)) state = { city: s.city || "", places: s.places, legs: {},
+      cityCC: s.cityCC, cityCCFor: s.cityCCFor, lastLeg: s.lastLeg };
+  } catch (e) { console.warn("load: route state unreadable", e); }
 }
 function applyMode() {
-  $("planTitle").textContent = isTrip() ? "Between cities" : `${flag(cityCC(state.city))} ${state.city || "Route"}`;
-  $("planBack").textContent = isTrip() || !state.city ? "‹ Cities" : `‹ ${state.city}`;
-  $("addLbl").textContent = isTrip() ? "Add cities (one per line)" : "Add places (one per line)";
-  $("newPlace").placeholder = isTrip() ? "Tokyo\nKyoto\nOsaka" : "Ueno Park\nSenso-ji";
+  $("planTitle").textContent = `${flag(cityCC(state.city))} ${state.city || "Route"}`;
+  $("planBack").textContent = state.city ? `‹ ${state.city}` : "‹ Cities";
   setStatus("");
   render();
 }
-function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+// A failed write (storage full or blocked) must not be silent: the data would be gone after a reload.
+let storeWarned = false;
+function store(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+  catch (e) {
+    console.error("store failed", key, e);
+    if (!storeWarned) { storeWarned = true; alert("Could not save: storage is full or blocked. Changes will be lost on reload. Use 💾 Backup on the home page."); }
+    return false;
+  }
 }
+function save() { store(KEY, state); }
 function setStatus(t) { $("status").textContent = t; }
 
 // ---- Favorites: places keep their city; cities stand alone ----
 let favs = { places: [], cities: [] };
 function loadFavs() {
+  const raw = localStorage.getItem(FAV_KEY);
   try {
-    const f = JSON.parse(localStorage.getItem(FAV_KEY));
+    const f = JSON.parse(raw);
     if (f) favs = { places: Array.isArray(f.places) ? f.places : [], cities: Array.isArray(f.cities) ? f.cities : [] };
-  } catch (e) {}
+  } catch (e) {
+    // Keep the broken text, so the next save does not destroy it.
+    console.error("loadFavs: unreadable, copied to", FAV_KEY + ".bad", e);
+    try { localStorage.setItem(FAV_KEY + ".bad", raw); } catch (e2) {}
+  }
 }
-function saveFavs() {
-  try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); } catch (e) {}
-}
-const favList = () => (isTrip() ? favs.cities : favs.places);
+function saveFavs() { return store(FAV_KEY, favs); }
 const same = (a, b) => (a || "").trim().toLowerCase() === (b || "").trim().toLowerCase();
+const ckey = (name, city) => (name || "").trim().toLowerCase() + "|" + (city || "").trim().toLowerCase();
 function favIndex(p) {
-  return favList().findIndex(f => same(f.name, p.name) && (isTrip() || same(f.city, state.city)));
+  return favs.places.findIndex(f => same(f.name, p.name) && same(f.city, state.city));
 }
 function toggleFav(p) {
   const i = favIndex(p);
-  if (i >= 0) { favList().splice(i, 1); setStatus(`Removed "${p.name}" from favorites.`); }
+  if (i >= 0) { favs.places.splice(i, 1); setStatus(`Removed "${p.name}" from favorites.`); }
   else {
-    if (isTrip()) cityRec(p.name);
-    else { favs.places.push({ name: p.name, city: state.city, cat: "Other" }); cityRec(state.city); }
+    const f = { name: p.name, city: state.city, cat: "Other" };
+    if (typeof p.lat === "number") Object.assign(f, { lat: p.lat, lon: p.lon });
+    if (p.addr) f.addr = p.addr;
+    favs.places.push(f); cityRec(state.city);
     setStatus(`Saved "${p.name}" to favorites.`);
   }
   saveFavs(); render();
@@ -290,6 +300,7 @@ function toggleFav(p) {
 // ---- Home page: one square per favorite city ----
 const CATS = ["Restaurant", "Café", "Bar", "Park", "Museum", "Sight", "Shop", "Hotel", "Other"];
 const CAT_ICON = { Restaurant: "🍽️", "Café": "☕", Bar: "🍸", Park: "🌳", Museum: "🏛️", Sight: "📸", Shop: "🛍️", Hotel: "🛏️", Other: "📍" };
+const CAT_OPTIONS = CATS.map(k => `<option value="${k}">${CAT_ICON[k]} ${k}</option>`).join(""); // static text only
 const catOf = (p) => (CATS.includes(p.cat) ? p.cat : "Other");
 // Country code "JP" -> 🇯🇵 (two regional-indicator letters).
 function flag(cc) {
@@ -310,10 +321,9 @@ const flagTried = new Set(); // this session only, so an offline start tries aga
 async function fillFlags() {
   const miss = favCities().filter(c => !c.cc && !flagTried.has(c.name));
   if (!miss.length) return;
-  console.log("fillFlags: looking up", miss.map(c => c.name));
   for (const c of miss) {
     flagTried.add(c.name);
-    const g = await cityGeo(c.name);
+    const g = await getCityCenter(c.name);
     if (g && g.cc) Object.assign(c, { cc: g.cc });
     else console.warn("fillFlags: no country found for", c.name);
   }
@@ -322,8 +332,10 @@ async function fillFlags() {
 }
 function renderHome() {
   const g = $("cityGrid"); g.innerHTML = "";
+  const counts = new Map();
+  for (const p of favs.places) { const k = ckey("", p.city); counts.set(k, (counts.get(k) || 0) + 1); }
   favCities().forEach(c => {
-    const n = favs.places.filter(p => same(p.city, c.name)).length;
+    const n = counts.get(ckey("", c.name)) || 0;
     const b = document.createElement("button"); b.className = "tile";
     for (const [cls, txt] of [["flag", flag(c.cc)], ["tname", c.name], ["tcount", n === 1 ? "1 place" : `${n} places`]]) {
       const s = document.createElement("span"); s.className = cls; s.textContent = txt; b.appendChild(s);
@@ -364,6 +376,7 @@ function renderCity() {
   chips.hidden = !ps.length;
   const ul = $("favPlaces"); ul.innerHTML = "";
   if (!ps.length) ul.innerHTML = `<li class="empty">No places yet. Add one above.</li>`;
+  const notes = [];
   shownPlaces().forEach(p => {
     const li = document.createElement("li"); li.className = "fplace";
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = picked.has(pkey(p));
@@ -376,11 +389,11 @@ function renderCity() {
     const note = document.createElement("textarea"); note.className = "note"; note.rows = 1;
     note.value = p.note || ""; note.placeholder = "＋ Add a note"; note.setAttribute("aria-label", "Note for " + p.name);
     const fit = () => { note.style.height = "auto"; note.style.height = note.scrollHeight + "px"; };
-    note.oninput = fit;
-    note.onchange = () => { const v = note.value.trim(); if (v) p.note = v; else delete p.note; saveFavs(); cityStatus(`Note saved for "${p.name}".`); };
-    body.appendChild(note); requestAnimationFrame(fit);
+    note.oninput = fit; notes.push(note);
+    note.onchange = () => { const v = note.value.trim(); if (v) p.note = v; else delete p.note; if (saveFavs()) cityStatus(`Note saved for "${p.name}".`); };
+    body.appendChild(note);
     const sel = document.createElement("select"); sel.className = "catsel"; sel.setAttribute("aria-label", "Category of " + p.name);
-    CATS.forEach(k => sel.add(new Option(`${CAT_ICON[k]} ${k}`, k)));
+    sel.innerHTML = CAT_OPTIONS;
     sel.value = catOf(p);
     sel.onchange = () => { p.cat = sel.value; saveFavs(); renderCity(); };
     body.appendChild(sel);
@@ -391,6 +404,12 @@ function renderCity() {
     del.className = "del";
     li.append(cb, body, del);
     ul.appendChild(li);
+  });
+  // Size all notes in one layout pass: reset all, read all, write all.
+  requestAnimationFrame(() => {
+    notes.forEach(n => n.style.height = "auto");
+    const h = notes.map(n => n.scrollHeight);
+    notes.forEach((n, i) => n.style.height = h[i] + "px");
   });
   syncPick();
 }
@@ -407,11 +426,15 @@ function gSearch(q) { return "https://www.google.com/maps/search/?api=1&query=" 
 // One place: a search pin. More: walking directions through all of them.
 function gChosenUrl(ps) {
   const s = ps.map(p => placeQ(p, curCity));
-  if (s.length === 1) return gSearch(s[0]);
+  return s.length === 1 ? gSearch(s[0]) : dirUrl(s, "walking");
+}
+// Google Maps directions through stops. Transit takes start and end only.
+const MAX_STOPS = 11; // origin + destination + 9 waypoints
+function dirUrl(stops, mode) {
   const u = new URL("https://www.google.com/maps/dir/");
-  u.searchParams.set("api", "1"); u.searchParams.set("origin", s[0]); u.searchParams.set("destination", s[s.length - 1]);
-  u.searchParams.set("travelmode", "walking");
-  if (s.length > 2) u.searchParams.set("waypoints", s.slice(1, -1).join("|"));
+  u.searchParams.set("api", "1"); u.searchParams.set("origin", stops[0]);
+  u.searchParams.set("destination", stops[stops.length - 1]); u.searchParams.set("travelmode", mode);
+  if (stops.length > 2 && mode !== "transit") u.searchParams.set("waypoints", stops.slice(1, -1).join("|"));
   return u.toString();
 }
 
@@ -428,7 +451,9 @@ function osmCat(k, v) {
   if (k === "place" && v === "square") return "Sight";
   return "Other";
 }
-let sugSeq = 0;
+let sugSeq = 0, sugTimer = null;
+// Close the list and cancel any search still waiting or running, so old results never come back.
+function hideSug() { clearTimeout(sugTimer); sugSeq++; $("sug").hidden = true; }
 async function suggest(q) {
   const seq = ++sugSeq;
   const center = await getCityCenter(curCity);
@@ -461,7 +486,7 @@ function showSug(list) {
     b.textContent = `${CAT_ICON[s.cat]} ${s.name}`;
     const sub = document.createElement("span"); sub.className = "ssub"; sub.textContent = `${s.cat} · ${s.sub}`;
     b.appendChild(sub);
-    b.onclick = () => { $("newFav").value = s.name; $("newCat").value = s.cat; sugPick = s; ul.hidden = true; };
+    b.onclick = () => { $("newFav").value = s.name; $("newCat").value = s.cat; sugPick = s; hideSug(); };
     li.appendChild(b); ul.appendChild(li);
   });
 }
@@ -472,7 +497,7 @@ function saveNewFav() {
   const f = { name, city: curCity, cat: $("newCat").value };
   if (sugPick && same(sugPick.name, name)) Object.assign(f, { lat: sugPick.lat, lon: sugPick.lon, addr: sugPick.sub });
   favs.places.push(f); cityRec(curCity); saveFavs();
-  $("newFav").value = ""; $("newCat").value = "Other"; sugPick = null; $("sug").hidden = true;
+  $("newFav").value = ""; $("newCat").value = "Other"; sugPick = null; hideSug();
   if (catFilter !== "All" && catFilter !== f.cat) catFilter = "All";
   renderCity(); cityStatus(`Saved "${name}".`);
 }
@@ -481,25 +506,40 @@ function saveNewFav() {
 // Columns used: Include, City, Category, Name, Note, Lat, Lon, Google link. Only Name and City are required.
 function homeStatus(t) { $("homeStatus").textContent = t; }
 function parseCSV(text) {
+  // Excel in some countries saves "CSV" with ";" between columns.
+  const first = text.split(/\r?\n/, 1)[0], d = !first.includes(",") && first.includes(";") ? ";" : ",";
   const rows = []; let row = [], f = "", q = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
-    else if (c === '"') q = true;
-    else if (c === ",") { row.push(f); f = ""; }
+    else if (c === '"' && f === "") q = true; // a quote opens a quoted field only at its start
+    else if (c === d) { row.push(f); f = ""; }
     else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(f); rows.push(row); row = []; f = ""; }
     else f += c;
   }
   if (f || row.length) { row.push(f); rows.push(row); }
   return rows.filter(r => r.some(x => x.trim()));
 }
+// Only a real Google Maps link (google.com, google.co.il, maps.google.…), else "".
+function mapsUrl(s) {
+  try {
+    const u = new URL(s);
+    const host = /^(www\.|maps\.)?google\.(com|co\.[a-z]{2}|com\.[a-z]{2}|[a-z]{2})$/.test(u.hostname);
+    return u.protocol === "https:" && host && (u.hostname.startsWith("maps.") || u.pathname.startsWith("/maps")) ? u.href : "";
+  } catch (e) { return ""; }
+}
 async function importFiles(files) {
   let added = 0, dup = 0, skipped = 0, noCity = 0, read = 0;
+  const have = new Set(favs.places.map(p => ckey(p.name, p.city)));
   for (const file of files) {
-    const rows = parseCSV((await file.text()).replace(/^﻿/, ""));
+    const rows = parseCSV(await file.text()); // file.text() already drops the UTF-8 BOM
     const head = (rows.shift() || []).map(h => h.trim().toLowerCase());
     const col = (n) => head.indexOf(n);
-    if (col("name") < 0 || col("city") < 0) { homeStatus(`"${file.name}" has no Name and City columns. Use the sheet made on the Mac.`); return; }
+    if (col("name") < 0 || col("city") < 0) {
+      saveFavs(); renderHome(); // keep rows from the files before this one
+      homeStatus((added ? `Imported ${added} place(s). ` : "") + `"${file.name}" has no Name and City columns. Use the sheet made on the Mac.`);
+      return;
+    }
     for (const r of rows) {
       const g = (n) => (col(n) >= 0 ? (r[col(n)] || "").trim() : "");
       read++;
@@ -507,18 +547,20 @@ async function importFiles(files) {
       const name = g("name"), city = g("city");
       if (!name) { skipped++; continue; }
       if (!city) { noCity++; continue; }
-      if (favs.places.some(p => same(p.name, name) && same(p.city, city))) { dup++; continue; }
+      if (have.has(ckey(name, city))) { dup++; continue; }
       const cat = CATS.find(k => same(k, g("category"))) || "Other";
       const f = { name, city, cat };
-      const lat = parseFloat(g("lat")), lon = parseFloat(g("lon"));
+      const num = (s) => parseFloat(s.replace(",", ".")); // "32,08" from comma-decimal Excel
+      const lat = num(g("lat")), lon = num(g("lon"));
       if (isFinite(lat) && isFinite(lon)) Object.assign(f, { lat, lon });
       if (g("note")) f.note = g("note");
-      if (/^https:\/\/(www\.)?google\.[a-z.]+\/maps|^https?:\/\/maps\.google\./.test(g("google link"))) f.gurl = g("google link");
-      favs.places.push(f); cityRec(city); added++;
+      const gl = mapsUrl(g("google link")); if (gl) f.gurl = gl;
+      favs.places.push(f); have.add(ckey(name, city)); cityRec(city); added++;
     }
   }
-  saveFavs(); renderHome();
-  console.log("import:", { read, added, dup, skipped, noCity });
+  const ok = saveFavs(); renderHome();
+  console.log("import:", { read, added, dup, skipped, noCity, saved: ok });
+  if (!ok) { homeStatus(`Read ${added} place(s), but could not save them. Storage is full or blocked.`); return; }
   homeStatus(`Imported ${added} place(s).` + (dup ? ` ${dup} already saved.` : "") + (skipped ? ` ${skipped} skipped (Include = no).` : "")
     + (noCity ? ` ${noCity} have no city: add one in the sheet and import again.` : ""));
 }
@@ -530,9 +572,9 @@ function route() {
   const v = view();
   $("homeView").hidden = v !== "home"; $("cityView").hidden = v !== "city"; $("planView").hidden = v !== "plan";
   if (v === "city") {
-    const c = decodeURIComponent(location.hash.slice(6));
+    let c; try { c = decodeURIComponent(location.hash.slice(6)); } catch (e) { return go("home"); } // broken link
     if (!same(c, curCity)) { curCity = c; catFilter = "All"; picked = new Set(); sugPick = null; }
-    $("newFav").value = ""; $("sug").hidden = true; cityStatus("");
+    $("newFav").value = ""; hideSug(); cityStatus("");
     renderCity();
   } else if (v === "plan") applyMode();
   else renderHome();
@@ -550,16 +592,16 @@ function render() {
   const ol = $("list");
   ol.innerHTML = "";
   const n = list().length;
-  if (!n) { ol.innerHTML = `<li class="empty">No ${isTrip() ? "cities" : "places"} yet.</li>`; return; }
+  if (!n) { ol.innerHTML = `<li class="empty">No places yet.</li>`; return; }
   list().forEach((p, i) => {
     const li = document.createElement("li");
-    li.className = isTrip() ? "place compact" : "place";
+    li.className = "place";
     const num = document.createElement("div"); num.className = "num"; num.textContent = i + 1;
     const body = document.createElement("div"); body.className = "body";
     const name = document.createElement("a"); name.className = "name"; name.textContent = p.name;
     name.href = placeUrl(p); name.target = "_blank"; name.rel = "noopener";
     body.appendChild(name);
-    if (!isTrip() && p.desc !== undefined) {
+    if (p.desc !== undefined) {
       const tag = timeTag(i, n);
       const t = document.createElement("div"); t.className = "tag " + tag; t.textContent = tag;
       const d = document.createElement("div"); d.className = "desc"; d.textContent = p.desc || "No description found.";
@@ -586,12 +628,9 @@ function render() {
   });
 }
 
-// ---- Between cities: one card per leg ----
-// Open one place in Google Maps (search by name, plus city when inside a city).
-function placeUrl(p) {
-  return gSearch(isTrip() ? p.name : placeQ(p, state.city));
-}
-const ICON = { metro: "🚇", train: "🚆", hsr: "🚄", bus: "🚌", walk: "🚶", pt: "🚇" };
+// ---- One card per leg (walk, metro, bus) ----
+const placeUrl = (p) => gSearch(placeQ(p, state.city));
+const ICON = { metro: "🚇", bus: "🚌", walk: "🚶" };
 function renderLeg(leg) {
   const li = document.createElement("li");
   li.className = "leg";
@@ -619,18 +658,11 @@ function renderLeg(leg) {
   if (leg.note) { const nt = document.createElement("div"); nt.className = "desc"; nt.textContent = leg.note; li.appendChild(nt); }
   const links = document.createElement("div"); links.className = "desc links";
   const fq = leg.fromQ || leg.from, tq = leg.toQ || leg.to;
-  if (leg.city) {
-    links.append("Real routes: ");
-  } else {
-    links.append("Real prices: ");
-    links.appendChild(extLink("Rome2rio", rome2rioUrl(fq, tq)));
-    links.append(" · ");
-  }
-  links.appendChild(extLink("Google Maps", googleTransitUrl(fq, tq)));
+  links.append("Real routes: ");
+  links.appendChild(extLink("Google Maps", dirUrl([fq, tq], "transit")));
   li.appendChild(links);
   const fine = document.createElement("div"); fine.className = "fine";
-  fine.textContent = "Rough estimate per person, one way, from distance. Real prices can differ a lot."
-    + (leg.city ? " Metro only if the city has one." : "");
+  fine.textContent = "Rough estimate per person, one way, from distance. Real prices can differ a lot. Metro only if the city has one.";
   li.appendChild(fine);
   return li;
 }
@@ -696,7 +728,6 @@ function km(a, b) {
 }
 
 async function start() {
-  if (isTrip()) return startTrip();
   if (!state.places.length) { setStatus("Add places first."); return; }
   $("startBtn").disabled = true;
   // Only look up new places, or all of them if the city changed.
@@ -704,8 +735,13 @@ async function start() {
   let done = 0, failed = 0;
   setStatus(`Looking up 0/${todo.length}…`);
   await Promise.all(todo.map(async (p) => {
-    delete p.lat; delete p.lon;
-    try { Object.assign(p, await wikiLookup(p.name, state.city)); p.lookedUpFor = state.city; }
+    // A point from an earlier city is wrong. A saved point (import, suggestion) beats Wikipedia's.
+    if (p.lookedUpFor && p.lookedUpFor !== state.city) { delete p.lat; delete p.lon; }
+    try {
+      const w = await wikiLookup(p.name, state.city);
+      if (typeof p.lat === "number") { delete w.lat; delete w.lon; }
+      Object.assign(p, w); p.lookedUpFor = state.city;
+    }
     catch (e) { failed++; p.desc = ""; p.url = ""; console.warn("lookup failed", p.name, e); }
     done++; setStatus(`Looking up ${done}/${todo.length}…`); render();
   }));
@@ -715,8 +751,7 @@ async function start() {
   $("startBtn").disabled = false;
 }
 
-// ---- Between cities: rough options and prices ----
-// Price level per country. Each mode: [base fare, price per km] in USD, per person.
+// ---- Rough prices: price level per country ----
 const TIER_OF = {
   JP: "jp", KR: "kr", TW: "kr", CN: "cn",
   FR: "weu", DE: "weu", IT: "weu", ES: "weu", NL: "weu", BE: "weu", AT: "weu", PT: "weu", DK: "weu",
@@ -729,19 +764,18 @@ const TIER_OF = {
   TH: "low", VN: "low", IN: "low", ID: "low", MY: "low", PH: "low", KH: "low", LA: "low", NP: "low",
   LK: "low", EG: "low", MA: "low", PE: "low", BO: "low", CO: "low", MX: "low",
 };
-const PRICES = {
-  jp:  { metro: [1, 0.05],   train: [0, 0.11], hsr: [3, 0.20], bus: [5, 0.09] },
-  kr:  { metro: [1, 0.05],   train: [2, 0.07], hsr: [3, 0.10], bus: [3, 0.06] },
-  cn:  { metro: [0.5, 0.04], train: [1, 0.03], hsr: [1, 0.06], bus: [2, 0.05] },
-  weu: { metro: [2, 0.10],   train: [5, 0.13], hsr: [10, 0.15], bus: [5, 0.05] },
-  hi:  { metro: [3, 0.15],   train: [6, 0.25], hsr: [10, 0.25], bus: [6, 0.07] },
-  na:  { metro: [2.5, 0.10], train: [10, 0.18], hsr: [15, 0.25], bus: [10, 0.08] },
-  eeu: { metro: [1, 0.05],   train: [2, 0.05], hsr: [3, 0.08], bus: [2, 0.045] },
-  il:  { metro: [1.5, 0.06], train: [2, 0.07], hsr: [3, 0.09], bus: [2, 0.06] },
-  low: { metro: [0.5, 0.03], train: [1, 0.02], hsr: [2, 0.05], bus: [1, 0.025] },
-  mid: { metro: [1, 0.06],   train: [3, 0.08], hsr: [5, 0.10], bus: [3, 0.05] },
+const PRICES = { // metro / city bus: [base fare, price per km] in USD, per person
+  jp: [1, 0.05],
+  kr: [1, 0.05],
+  cn: [0.5, 0.04],
+  weu: [2, 0.10],
+  hi: [3, 0.15],
+  na: [2.5, 0.10],
+  eeu: [1, 0.05],
+  il: [1.5, 0.06],
+  low: [0.5, 0.03],
+  mid: [1, 0.06],
 };
-const HSR = new Set(["JP", "CN", "KR", "TW", "FR", "ES", "IT", "DE", "BE", "NL", "AT", "TR", "SA", "MA"]);
 const CUR_OF = {
   JP: "JPY", KR: "KRW", CN: "CNY", GB: "GBP", CH: "CHF", NO: "NOK", SE: "SEK", DK: "DKK", IS: "ISK",
   US: "USD", CA: "CAD", AU: "AUD", NZ: "NZD", PL: "PLN", CZ: "CZK", HU: "HUF", RO: "RON", BG: "BGN",
@@ -775,12 +809,12 @@ async function cityGeo(name) {
   return null;
 }
 
-function legKey(a, b) { return `${state.mode}|${a.name}|${b.name}`; }
+const legKey = (a, b) => `${a.name}|${b.name}`;
 
 // Inside a city: walk vs public transport (metro / bus), from straight-line distance.
 function estimateCityLeg(a, b, cc) {
   const d = km(a, b), street = d * 1.3;
-  const tier = TIER_OF[cc] || "mid", [base, perKm] = PRICES[tier].metro;
+  const [base, perKm] = PRICES[TIER_OF[cc] || "mid"];
   const opts = [{ kind: "walk", label: "Walk", min: street / 4.5 * 60, usd: 0 }];
   // Under ~700 m, public transport is not worth it.
   // Metro / subway: walk to station + wait, fast between stations. Bus: short wait, slow in traffic.
@@ -809,7 +843,7 @@ async function buildCityLegs() {
     catch (e) { console.warn("geocode failed", p.name, e); }
     if (i < need.length) await new Promise(r => setTimeout(r, 400));
   }
-  for (const k of Object.keys(state.legs)) if (k.startsWith("city|")) delete state.legs[k];
+  state.legs = {};
   for (let k = 0; k < ps.length - 1; k++) {
     const a = ps[k], b = ps[k + 1];
     state.legs[legKey(a, b)] = (typeof a.lat === "number" && typeof b.lat === "number")
@@ -819,58 +853,6 @@ async function buildCityLegs() {
   }
 }
 
-function estimateLeg(a, b) {
-  const d = km(a, b); // straight line
-  const tierA = TIER_OF[a.cc] || "mid", tierB = TIER_OF[b.cc] || "mid";
-  const price = (kind, dist) => {
-    const pa = PRICES[tierA][kind], pb = PRICES[tierB][kind];
-    return ((pa[0] + pb[0]) / 2) + dist * ((pa[1] + pb[1]) / 2);
-  };
-  const rail = d * 1.2, road = d * 1.25;
-  const cur = CUR_OF[a.cc] || "USD";
-  if (d > 2000) {
-    return { from: a.name, to: b.name, km: d, options: [], cur,
-      note: "Too far for metro, train or bus. A flight is the normal option." };
-  }
-  const opts = [];
-  if (d < 40) opts.push({ kind: "metro", label: "Metro / commuter rail", min: 10 + rail / 40 * 60, usd: price("metro", rail) });
-  if (d >= 15) {
-    const fast = d >= 150 && HSR.has(a.cc) && HSR.has(b.cc);
-    if (fast) opts.push({ kind: "hsr", label: "High-speed train", min: 30 + rail / 200 * 60, usd: price("hsr", rail) });
-    opts.push({ kind: "train", label: fast ? "Regular train" : "Train", min: 20 + rail / 70 * 60, usd: price("train", rail) });
-  }
-  opts.push({ kind: "bus", label: "Bus", min: 15 + road / 60 * 60, usd: price("bus", road) });
-  opts.sort((x, y) => x.min - y.min);
-  let note = "";
-  if (d > 800) note = "Long distance: a flight is often faster and can be cheaper.";
-  if (a.cc && b.cc && a.cc !== b.cc) note = (note ? note + " " : "") + "Crosses a border: check that a direct route exists.";
-  return { from: a.name, to: b.name, km: d, options: opts, note, cur };
-}
-
-async function startTrip() {
-  const cs = state.cities;
-  if (cs.length < 2) { setStatus("Add at least 2 cities."); return; }
-  $("startBtn").disabled = true;
-  await loadRates();
-  let i = 0, missing = [];
-  for (const c of cs) {
-    setStatus(`Finding cities ${++i}/${cs.length}…`);
-    if (typeof c.lat !== "number" || !c.cc) {
-      const g = await cityGeo(c.name);
-      if (g) Object.assign(c, g); else missing.push(c.name);
-    }
-  }
-  for (const k of Object.keys(state.legs)) if (k.startsWith("trip|")) delete state.legs[k];
-  for (let k = 0; k < cs.length - 1; k++) {
-    const a = cs[k], b = cs[k + 1];
-    state.legs[legKey(a, b)] = (typeof a.lat === "number" && typeof b.lat === "number")
-      ? estimateLeg(a, b)
-      : { from: a.name, to: b.name, options: [], error: "City not found. Check the spelling." };
-  }
-  save(); render();
-  setStatus(missing.length ? `Done. Not found: ${missing.join(", ")}.` : "Done.");
-  $("startBtn").disabled = false;
-}
 
 function fmtTime(min) {
   const m = Math.round(min / 5) * 5, h = Math.floor(m / 60), r = m % 60;
@@ -896,33 +878,10 @@ function fmtPrice(usd, cur) {
   const f = rates[cur];
   return `${range(round2(lo * f), round2(hi * f), cur)}\n${usdTxt}`;
 }
-function rome2rioUrl(a, b) {
-  const s = (x) => encodeURIComponent(x.trim().replace(/\s+/g, "-"));
-  return `https://www.rome2rio.com/map/${s(a)}/${s(b)}`;
-}
-function googleTransitUrl(a, b) {
-  const u = new URL("https://www.google.com/maps/dir/");
-  u.searchParams.set("api", "1"); u.searchParams.set("origin", a); u.searchParams.set("destination", b);
-  u.searchParams.set("travelmode", "transit");
-  return u.toString();
-}
 
 // ---- Map links ----
-function stops() {
-  if (isTrip()) return routeItems().map(c => c.name);
-  return routeItems().map(p => placeQ(p, state.city));
-}
-function googleUrl(mode) {
-  const s = stops();
-  const u = new URL("https://www.google.com/maps/dir/");
-  u.searchParams.set("api", "1");
-  u.searchParams.set("origin", s[0]);
-  u.searchParams.set("destination", s[s.length - 1]);
-  u.searchParams.set("travelmode", mode);
-  const mid = s.slice(1, -1);
-  if (mid.length && mode !== "transit") u.searchParams.set("waypoints", mid.join("|"));
-  return u.toString();
-}
+const stops = () => routeItems().map(p => placeQ(p, state.city));
+const googleUrl = (mode) => dirUrl(stops(), mode);
 
 // Free geocoding from OpenStreetMap data: Photon first (fuzzy, finds more shops),
 // then Nominatim. "bias" = city centre, so results near the city win.
@@ -940,14 +899,16 @@ async function nominatim(q) {
   const j = await r.json();
   return j[0] ? { lat: parseFloat(j[0].lat), lon: parseFloat(j[0].lon) } : null;
 }
-let cityBias = null, cityBiasFor = null;
-async function getCityCenter(city) {
-  if (cityBiasFor !== city) {
-    cityBiasFor = city;
-    try { cityBias = await photon(city, null); } catch (e) { cityBias = null; }
-    if (!cityBias) cityBiasFor = null; // try again next time
+// City centre and country, one lookup per city. Calls at the same time share one request.
+const centerCache = new Map(); // city -> Promise<{lat, lon, cc} | null>
+function getCityCenter(city) {
+  const k = ckey("", city);
+  if (!centerCache.has(k)) {
+    const p = cityGeo(city).catch(() => null);
+    centerCache.set(k, p);
+    p.then(g => { if (!g) centerCache.delete(k); }); // try again after a failure
   }
-  return cityBias;
+  return centerCache.get(k);
 }
 async function geocode(place, city) {
   const center = city ? await getCityCenter(city) : null;
@@ -971,12 +932,8 @@ $("clearBtn").onclick = () => {
 $("startBtn").onclick = start;
 $("mapBtn").onclick = () => {
   if (list().length < 2) { setStatus("Add at least 2 places."); return; }
-  if (list().length > 11) setStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
-  // Between cities: no walking. Default to transit.
-  const walk = $("mode").querySelector('option[value="walking"]');
-  walk.hidden = walk.disabled = isTrip();
-  if (isTrip() && $("mode").value === "walking") $("mode").value = "transit";
-  if (!isTrip() && $("mode").value === "transit") $("mode").value = "walking";
+  if (list().length > MAX_STOPS) setStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
+  if ($("mode").value === "transit") $("mode").value = "walking";
   // 3+ stops: pick one leg (1→2, 2→3, …) or the whole route.
   const items = list(), sel = $("legSel");
   $("legBox").hidden = items.length <= 2;
@@ -985,7 +942,7 @@ $("mapBtn").onclick = () => {
     sel.add(new Option(`Whole route: ${items.map(c => c.name).join(" → ")}`, "all"));
     for (let k = 0; k < items.length - 1; k++) sel.add(new Option(`${k + 1}→${k + 2}: ${items[k].name} → ${items[k + 1].name}`, String(k)));
     // After a one-leg map, offer the next leg.
-    const next = state.lastLeg && state.lastLeg.mode === state.mode ? state.lastLeg.k + 1 : -1;
+    const next = state.lastLeg ? state.lastLeg.k + 1 : -1;
     sel.value = next >= 0 && next < items.length - 1 ? String(next) : "all";
   }
   syncLeg();
@@ -1012,7 +969,7 @@ function routeItems() {
 }
 function rememberLeg() {
   const v = $("legBox").hidden ? "all" : $("legSel").value;
-  state.lastLeg = v === "all" ? null : { mode: state.mode, k: +v };
+  state.lastLeg = v === "all" ? null : { k: +v };
   save();
 }
 $("gBtn").onclick = () => { rememberLeg(); location.href = googleUrl($("mode").value); $("mapDlg").close(); };
@@ -1031,8 +988,13 @@ $("impFile").onchange = async (e) => {
   catch (err) { console.error("import failed", err); homeStatus("Import failed: " + err.message); }
   $("impBtn").disabled = false;
 };
+$("backupBtn").onclick = async () => {
+  const txt = JSON.stringify(favs);
+  try { await navigator.clipboard.writeText(txt); homeStatus(`Copied ${favs.places.length} place(s). Paste them in Notes to keep a backup.`); }
+  catch (e) { console.error("backup copy failed", e); homeStatus("Could not copy. Your browser blocked the clipboard."); }
+};
 // City page
-CATS.forEach(k => $("newCat").add(new Option(`${CAT_ICON[k]} ${k}`, k)));
+$("newCat").innerHTML = CAT_OPTIONS;
 $("newCat").value = "Other";
 $("cityBack").onclick = () => go("home");
 $("cityDel").onclick = () => {
@@ -1042,33 +1004,38 @@ $("cityDel").onclick = () => {
   favs.cities = favs.cities.filter(c => !same(c.name, curCity));
   saveFavs(); go("home");
 };
-let sugTimer = null;
 $("newFav").addEventListener("input", () => {
   sugPick = null; clearTimeout(sugTimer);
   const q = $("newFav").value.trim();
-  if (q.length < 2) { sugSeq++; $("sug").hidden = true; return; }
+  if (q.length < 2) { hideSug(); return; }
   sugTimer = setTimeout(() => suggest(q), 300);
 });
 $("newFav").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveNewFav(); } });
 $("newFavBtn").onclick = saveNewFav;
-$("pickAll").onclick = () => { shownPlaces().forEach(p => picked.add(pkey(p))); renderCity(); };
-$("pickNone").onclick = () => { picked.clear(); renderCity(); };
+// Tick or clear the boxes in place: no need to rebuild the list.
+function setAllPicks(on) {
+  if (on) shownPlaces().forEach(p => picked.add(pkey(p))); else picked.clear();
+  document.querySelectorAll("#favPlaces input[type=checkbox]").forEach(cb => cb.checked = on);
+  syncPick();
+}
+$("pickAll").onclick = () => setAllPicks(true);
+$("pickNone").onclick = () => setAllPicks(false);
 $("gmapBtn").onclick = () => {
   const ps = chosen(); if (!ps.length) return;
-  if (ps.length > 10) cityStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
+  if (ps.length > MAX_STOPS) cityStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
   window.open(gChosenUrl(ps), "_blank", "noopener");
 };
 $("routeBtn").onclick = () => {
   const ps = chosen(); if (ps.length < 2) return;
   // Keep earlier lookups for places that were already in the route.
   const old = state.city === curCity ? state.places : [];
-  state.mode = "city"; state.city = curCity; state.legs = {};
+  state.city = curCity; state.legs = {};
   state.places = ps.map(f => old.find(p => same(p.name, f.name)) ||
     (typeof f.lat === "number" ? { name: f.name, addr: f.addr, lat: f.lat, lon: f.lon } : { name: f.name }));
   save(); go("plan"); start();
 };
 // Plan page
-$("planBack").onclick = () => (isTrip() || !state.city ? go("home") : go("city", state.city));
+$("planBack").onclick = () => (state.city ? go("city", state.city) : go("home"));
 window.addEventListener("hashchange", route);
 
 load();
