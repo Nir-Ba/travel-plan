@@ -171,7 +171,7 @@
       <div class="fine">Places you already saved are skipped, so you can import again after more fixes.</div>
     </div>
     </div>
-    <button id="backupBtn" style="width:100%;margin-top:8px" title="Copy all saved places as text. Paste it in Notes to keep a backup.">💾 Copy backup</button>
+    <button id="backupBtn" style="width:100%;margin-top:8px" title="Save all places as a CSV file. Import it with Import from Maps to restore.">💾 Save backup (.csv)</button>
     <input type="file" id="impFile" accept=".csv,text/csv" hidden>
   </div>
   <div class="status" id="homeStatus"></div>
@@ -269,7 +269,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.7.2";
+const APP_VERSION = "2.8.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -297,7 +297,7 @@ function store(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); return true; }
   catch (e) {
     console.error("store failed", key, e);
-    if (!storeWarned) { storeWarned = true; alert("Could not save: storage is full or blocked. Changes will be lost on reload. Use 💾 Backup on the home page."); }
+    if (!storeWarned) { storeWarned = true; alert("Could not save: storage is full or blocked. Changes will be lost on reload. Save a backup: ⚙︎ › Save backup on the home page."); }
     return false;
   }
 }
@@ -698,6 +698,8 @@ async function importFiles(files) {
       const lat = num(g("lat")), lon = num(g("lon"));
       if (isFinite(lat) && isFinite(lon)) Object.assign(f, { lat, lon });
       if (g("note")) f.note = g("note");
+      if (g("phone")) f.phone = g("phone");
+      if (g("address")) f.addr = g("address");
       const gl = mapsUrl(g("google link")); if (gl) f.gurl = gl;
       favs.places.push(f); have.add(ckey(name, city)); cityRec(city); added++;
     }
@@ -1184,10 +1186,23 @@ $("impFile").onchange = async (e) => {
   catch (err) { console.error("import failed", err); homeStatus("Import failed: " + err.message); }
   $("impBtn").disabled = false;
 };
-$("backupBtn").onclick = async () => {
-  const txt = JSON.stringify(favs);
-  try { await navigator.clipboard.writeText(txt); homeStatus(`Copied ${favs.places.length} place(s). Paste them in Notes to keep a backup.`); }
-  catch (e) { console.error("backup copy failed", e); homeStatus("Could not copy. Your browser blocked the clipboard."); }
+// Backup: one CSV in the same columns the import reads, so "Import from Maps" restores it.
+function backupCSV() {
+  const cols = ["Include", "City", "Category", "Name", "Note", "Phone", "Address", "Lat", "Lon", "Google link"];
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = favs.places.map(p => ["yes", p.city, catOf(p), p.name, p.note, p.phone, p.addr,
+    typeof p.lat === "number" ? p.lat : "", typeof p.lon === "number" ? p.lon : "", p.gurl].map(q).join(","));
+  return "\uFEFF" + [cols.join(","), ...rows].join("\r\n") + "\r\n"; // BOM: Excel shows Hebrew right
+}
+$("backupBtn").onclick = () => {
+  try {
+    const name = `Travel Plan backup ${new Date().toISOString().slice(0, 10)}.csv`;
+    const url = URL.createObjectURL(new Blob([backupCSV()], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    homeStatus(`Saved ${favs.places.length} place(s) to "${name}". On the iPhone it is in Files › Downloads.`);
+  } catch (e) { console.error("backup failed", e); homeStatus("Could not save the backup: " + e.message); }
 };
 // City page
 $("newCat").innerHTML = CAT_OPTIONS; $("pdCat").innerHTML = CAT_OPTIONS;
