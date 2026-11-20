@@ -259,7 +259,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.6.1";
+const APP_VERSION = "2.6.2";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -347,20 +347,25 @@ function favCities() {
   return favs.cities.slice().sort((a, b) => a.name.localeCompare(b.name));
 }
 const flagTried = new Set(); // this session only, so an offline start tries again next time
+let flagsRunning = false;
+// One run at a time. Each flag is saved and shown as soon as it is found, so closing the app loses nothing.
 async function fillFlags() {
-  const miss = favCities().filter(c => !c.cc && !flagTried.has(c.name));
-  if (!miss.length) return;
-  for (const c of miss) {
-    flagTried.add(c.name);
-    const g = await getCityCenter(c.name);
-    if (g && g.cc) Object.assign(c, { cc: g.cc });
-    else console.warn("fillFlags: no country found for", c.name);
-  }
-  saveFavs();
-  if (view() === "home") renderHome();
+  if (flagsRunning) return;
+  flagsRunning = true;
+  try {
+    for (;;) {
+      const c = favCities().find(c => !c.cc && !flagTried.has(c.name));
+      if (!c) break;
+      flagTried.add(c.name);
+      const g = await getCityCenter(c.name);
+      if (!(g && g.cc)) { console.warn("fillFlags: no country found for", c.name); continue; }
+      c.cc = g.cc; saveFavs();
+      document.querySelectorAll("#cityGrid .tile").forEach(t => { if (t.dataset.city === ckey("", c.name)) t.querySelector(".flag").textContent = flag(c.cc); });
+    }
+  } finally { flagsRunning = false; }
 }
 function tile(c, n, small) {
-  const b = document.createElement("button"); b.className = small ? "tile small" : "tile";
+  const b = document.createElement("button"); b.className = small ? "tile small" : "tile"; b.dataset.city = ckey("", c.name);
   const parts = [["flag", flag(c.cc)], ["tname", c.name]];
   if (!small) parts.push(["tcount", n === 1 ? "1 place" : `${n} places`]);
   for (const [cls, txt] of parts) { const s = document.createElement("span"); s.className = cls; s.textContent = txt; b.appendChild(s); }
