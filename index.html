@@ -273,7 +273,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.12.1";
+const APP_VERSION = "2.12.2";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -1301,16 +1301,19 @@ $("gmapBtn").onclick = () => {
 };
 // WhatsApp opens with the list filled in. You choose the chat there.
 function waText(ps, tips) {
+  const favFirst = (l) => l.slice().sort((a, b) => !!b.fav - !!a.fav); // stable: the rest keep their order
+  ps = favFirst(ps); tips = favFirst(tips);
+  const star = (p) => (p.fav ? "★ " : "");
   const lines = [`${curCity}`];
   if (ps.length) lines.push("", `📍 ${ps.length} place${ps.length > 1 ? "s" : ""}:`);
   ps.forEach((p, i) => {
-    lines.push("", `${i + 1}. ${p.name}`);
+    lines.push("", `${i + 1}. ${star(p)}${p.name}`);
     if (p.note) lines.push(p.note.trim());
     lines.push(p.gurl || gSearch(placeQ(p, curCity)));
   });
   if (tips.length) lines.push("", `💡 Tips:`);
   tips.forEach(p => {
-    lines.push("", `• ${p.name}`);
+    lines.push("", `• ${star(p)}${p.name}`);
     if (p.phone) lines.push("📞 " + p.phone.trim());
     if (p.note) lines.push(p.note.trim());
   });
