@@ -206,6 +206,7 @@
     <div class="status" id="cityStatus"></div>
     <div class="row">
       <button class="fab primary" id="addFab" aria-label="Add a place" aria-expanded="false">＋</button>
+      <button class="fab" id="waBtn" aria-label="Send chosen places on WhatsApp" title="Send chosen places on WhatsApp">💬</button>
       <button class="primary" id="gmapBtn">Show on Google Maps</button>
       <button class="primary" id="routeBtn">Plan route</button>
     </div>
@@ -269,7 +270,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.8.0";
+const APP_VERSION = "2.9.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -519,6 +520,7 @@ function syncPick() {
   $("pickCount").textContent = n ? `${n} chosen` : "Tick places to choose them.";
   $("pickNone").hidden = !n;
   $("gmapBtn").disabled = !n;
+  $("waBtn").disabled = !n;
   $("routeBtn").disabled = n < 2;
   renderMap();
 }
@@ -1259,6 +1261,20 @@ $("gmapBtn").onclick = () => {
   const ps = chosen(); if (!ps.length) return;
   if (ps.length > MAX_STOPS) cityStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
   window.open(gChosenUrl(ps), "_blank", "noopener");
+};
+// WhatsApp opens with the list filled in. You choose the chat there.
+function waText(ps) {
+  const lines = [`${curCity} – ${ps.length} place${ps.length > 1 ? "s" : ""}:`];
+  ps.forEach((p, i) => {
+    lines.push("", `${i + 1}. ${p.name}`);
+    if (p.note) lines.push(p.note.trim());
+    lines.push(p.gurl || gSearch(placeQ(p, curCity)));
+  });
+  return lines.join("\n");
+}
+$("waBtn").onclick = () => {
+  const ps = chosen(); if (!ps.length) return;
+  window.open("https://wa.me/?text=" + encodeURIComponent(waText(ps)), "_blank", "noopener");
 };
 $("routeBtn").onclick = () => {
   const ps = chosen(); if (ps.length < 2) return;
