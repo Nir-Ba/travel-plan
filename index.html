@@ -114,6 +114,8 @@
   .sug { list-style: none; margin: 4px 0 0; padding: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
   .sug button { width: 100%; text-align: left; background: transparent; border-radius: 0; padding: 10px 14px; border-top: 1px solid var(--line); }
   .sug li:first-child button { border-top: 0; }
+  #linkNote { margin-top: 6px; color: var(--muted); }
+  #linkNote button { margin-left: 6px; }
   .sug .ssub { display: block; font-size: 13px; color: var(--muted); font-weight: 400; }
   .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 6px; scrollbar-width: none; }
   .chip { flex: 0 0 auto; padding: 7px 12px; font-size: 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); }
@@ -190,7 +192,8 @@
   <h1 id="cityTitle"></h1>
   <div class="section" id="addBox" hidden>
     <label class="small" for="newFav">Add a favorite place</label>
-    <input id="newFav" placeholder="Type a place name" autocomplete="off">
+    <input id="newFav" placeholder="Type a place name or paste a Google Maps link" autocomplete="off">
+    <div id="linkNote" class="small" hidden></div>
     <ul id="sug" class="sug" hidden></ul>
     <div class="row" style="margin-top:8px">
       <select id="newCat" aria-label="Category"></select>
@@ -273,7 +276,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.13.0";
+const APP_VERSION = "2.14.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -416,7 +419,7 @@ function renderHome() {
 }
 
 // ---- City page: favorite places with a category ----
-let curCity = "", catFilter = "All", picked = new Set(), sugPick = null;
+let curCity = "", catFilter = "All", picked = new Set(), sugPick = null, gPaste = null; // gPaste: a pasted Google Maps link
 const pkey = (p) => p.name.trim().toLowerCase();
 const cityPlaces = () => favs.places.filter(p => same(p.city, curCity));
 const chosen = () => cityPlaces().filter(p => !isTip(p) && picked.has(pkey(p)));
@@ -648,14 +651,77 @@ function showSug(list) {
     li.appendChild(b); ul.appendChild(li);
   });
 }
+// ---- Paste a Google Maps link ----
+// Long links (from a browser) hold the name and the pin. Short links (maps.app.goo.gl, from the share button)
+// hold nothing: a web page cannot open them (CORS), so the name comes from the shared text or the user types it.
+function gmapsLink(s) {
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "https:") return "";
+    if (u.hostname === "maps.app.goo.gl" || (u.hostname === "goo.gl" && u.pathname.startsWith("/maps"))) return u.href;
+    return mapsUrl(s);
+  } catch (e) { return ""; }
+}
+function parseGPaste(text) {
+  const m = text.match(/https?:\/\/\S+/); if (!m) return null;
+  const url = gmapsLink(m[0].replace(/[)\].,]+$/, "")); if (!url) return null;
+  const out = { url, name: "" };
+  const dec = (x) => { try { return decodeURIComponent(x.replace(/\+/g, " ")).trim(); } catch (e) { return x; } };
+  const u = new URL(url), path = u.pathname;
+  const pm = path.match(/\/maps\/place\/([^/]+)/);
+  const ll = (a, b) => { const lat = parseFloat(a), lon = parseFloat(b);
+    if (isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && (lat || lon)) { out.lat = lat; out.lon = lon; return true; } return false; };
+  const NUM = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
+  const q = u.searchParams.get("q") || u.searchParams.get("query") || "";
+  if (pm && !NUM.test(dec(pm[1]))) out.name = dec(pm[1]);
+  else if (q && !NUM.test(q)) out.name = q.split(",")[0].trim();
+  // Pin first (!3d…!4d…), then coordinates in the text, then the map centre (@lat,lon).
+  let c = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (!(c && ll(c[1], c[2]))) {
+    const n = (q.match(NUM) || (pm && dec(pm[1]).match(NUM)) || dec(path).match(/\/search\/(-?\d+\.\d+),\s*(-?\d+\.\d+)/));
+    if (!(n && ll(n[1], n[2]))) { c = path.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/); if (c) ll(c[1], c[2]); }
+  }
+  // Shared text, e.g. "Café Nero\nhttps://maps.app.goo.gl/…": the first line that is not the link is the name.
+  if (!out.name) {
+    const line = text.replace(m[0], "\n").split(/\n/).map(x => x.trim()).find(x => x && !/^https?:/.test(x));
+    if (line) out.name = line.slice(0, 120);
+  }
+  return out;
+}
+function showLinkNote() {
+  const el = $("linkNote"); el.hidden = !gPaste; el.innerHTML = "";
+  if (!gPaste) return;
+  el.append(typeof gPaste.lat === "number" ? "📍 Google Maps link and pin added. " : "📍 Google Maps link added. ");
+  const x = document.createElement("button"); x.className = "small"; x.textContent = "Remove link";
+  x.onclick = () => { gPaste = null; showLinkNote(); };
+  el.appendChild(x);
+}
+async function takeGPaste(text) {
+  const g = parseGPaste(text); if (!g) return false;
+  console.log("Google Maps paste:", g.url.length > 40 ? "long link" : "short link", "name:", g.name ? "yes" : "no", "pin:", typeof g.lat === "number" ? "yes" : "no");
+  hideSug(); sugPick = null; gPaste = g;
+  $("newFav").value = g.name;
+  let msg = g.name ? "" : "Short link: type the place name.";
+  if (typeof g.lat === "number") {
+    const center = await getCityCenter(curCity);
+    if (gPaste !== g) return true; // another paste came in
+    if (center && km(g, center) > MAX_KM) { delete g.lat; delete g.lon; msg = `This place is far from ${curCity}. The link is kept, the pin is not used.`; console.log("Google Maps paste: pin skipped, too far from city"); }
+  }
+  showLinkNote(); cityStatus(msg);
+  if (g.name && typeof g.lat !== "number" && $("newCat").value !== "Tips") suggest(g.name); // help find the pin
+  $("newFav").focus();
+  return true;
+}
+
 function saveNewFav() {
   const name = $("newFav").value.trim();
   if (!name) { cityStatus("Type a place name first."); return; }
   if (cityPlaces().some(p => same(p.name, name))) { cityStatus(`"${name}" is already saved.`); return; }
   const f = { name, city: curCity, cat: $("newCat").value };
-  if (f.cat !== "Tips" && sugPick && same(sugPick.name, name)) { Object.assign(f, { lat: sugPick.lat, lon: sugPick.lon }); if (sugPick.addr) f.addr = sugPick.addr; }
+  if (gPaste) { f.gurl = gPaste.url; if (f.cat !== "Tips" && typeof gPaste.lat === "number") Object.assign(f, { lat: gPaste.lat, lon: gPaste.lon }); }
+  if (f.cat !== "Tips" && typeof f.lat !== "number" && sugPick && same(sugPick.name, name)) { Object.assign(f, { lat: sugPick.lat, lon: sugPick.lon }); if (sugPick.addr) f.addr = sugPick.addr; }
   favs.places.push(f); cityRec(curCity); saveFavs();
-  $("newFav").value = ""; $("newCat").value = "Other"; $("newCat").dispatchEvent(new Event("change")); sugPick = null; hideSug();
+  $("newFav").value = ""; $("newCat").value = "Other"; $("newCat").dispatchEvent(new Event("change")); sugPick = null; gPaste = null; showLinkNote(); hideSug();
   if (catFilter !== "All" && catFilter !== f.cat) catFilter = "All";
   renderCity(); cityStatus(`Saved "${name}".`);
 }
@@ -747,7 +813,7 @@ function route() {
   if (v === "city") {
     let c; try { c = decodeURIComponent(location.hash.slice(6)); } catch (e) { return go("home"); } // broken link
     if (!same(c, curCity)) { curCity = c; catFilter = "All"; picked = new Set(); sugPick = null; hlKey = ""; }
-    $("newFav").value = ""; hideSug(); cityStatus("");
+    $("newFav").value = ""; gPaste = null; showLinkNote(); hideSug(); cityStatus("");
     if ($("placeDlg").open) $("placeDlg").close();
     showAdd(!cityPlaces().length, false); // a new city opens with the add form
     renderCity();
@@ -1271,7 +1337,7 @@ $("addFab").onclick = () => showAdd($("addBox").hidden);
 // Choosing Tips: no map suggestions, and a hint for what to type.
 $("newCat").addEventListener("change", () => {
   const tip = $("newCat").value === "Tips";
-  $("newFav").placeholder = tip ? "Tip title, e.g. Driver Ahmed" : "Type a place name";
+  $("newFav").placeholder = tip ? "Tip title, e.g. Driver Ahmed" : "Type a place name or paste a Google Maps link";
   if (tip) hideSug();
 });
 $("pdCat").addEventListener("change", syncPanel);
@@ -1295,9 +1361,16 @@ $("cityDel").onclick = () => {
   favs.cities = favs.cities.filter(c => !same(c.name, curCity));
   saveFavs(); go("home");
 };
+// Paste: read the clipboard text with its line breaks (an <input> drops them), so "Name\nlink" works.
+$("newFav").addEventListener("paste", (e) => {
+  const t = (e.clipboardData || window.clipboardData)?.getData("text") || "";
+  if (/https?:\/\//.test(t) && parseGPaste(t)) { e.preventDefault(); takeGPaste(t); }
+});
 $("newFav").addEventListener("input", () => {
   sugPick = null; clearTimeout(sugTimer);
   const q = $("newFav").value.trim();
+  if (/https?:\/\//.test(q)) { if (parseGPaste(q)) takeGPaste(q); else hideSug(); return; } // pasted without a paste event, or typed
+  if (!q && gPaste) { gPaste = null; showLinkNote(); }
   if (q.length < 2 || $("newCat").value === "Tips") { hideSug(); return; } // a tip is not on the map
   sugTimer = setTimeout(() => suggest(q), 300);
 });
