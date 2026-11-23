@@ -269,7 +269,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.10.0";
+const APP_VERSION = "2.10.1";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -817,6 +817,34 @@ function renderLeg(leg) {
   return li;
 }
 function badge(t) { const b = document.createElement("span"); b.className = "badge"; b.textContent = t; return b; }
+// iPhone Home Screen app: a web link opens in a small in-app browser. When it hands over to the
+// Google Maps or WhatsApp app, that small browser stays white. So there we open the app itself.
+const STANDALONE = navigator.standalone === true;
+function appUrl(url) {
+  if (/^https:\/\/(www\.)?google\.[^/]+\/maps|^https:\/\/maps\.google\./.test(url)) return url.replace(/^https:\/\//, "comgooglemapsurl://");
+  const wa = url.match(/^https:\/\/wa\.me\/(\d*)\?text=(.*)$/) || url.match(/^https:\/\/wa\.me\/(\d+)()$/);
+  if (wa) return "whatsapp://send?" + (wa[1] ? "phone=" + wa[1] + (wa[2] ? "&" : "") : "") + (wa[2] ? "text=" + wa[2] : "");
+  return "";
+}
+function openOut(url) {
+  const app = STANDALONE ? appUrl(url) : "";
+  if (!app) { window.open(url, "_blank", "noopener"); return; }
+  // If the app does not open (not installed), open the web page after a short wait.
+  let left = false; const gone = () => { left = true; };
+  window.addEventListener("blur", gone); document.addEventListener("visibilitychange", gone);
+  console.log("Travel Plan openOut: app link", app);
+  location.href = app;
+  setTimeout(() => {
+    window.removeEventListener("blur", gone); document.removeEventListener("visibilitychange", gone);
+    if (!left) { console.log("Travel Plan openOut: app did not open, web link", url); window.open(url, "_blank", "noopener"); }
+  }, 1500);
+}
+// Links in the page (place panel, tip buttons, route legs) go the same way.
+document.addEventListener("click", ev => {
+  const a = ev.target.closest && ev.target.closest("a[href]");
+  if (!a || !STANDALONE || !appUrl(a.href)) return;
+  ev.preventDefault(); openOut(a.href);
+});
 function extLink(t, href) { const a = document.createElement("a"); a.textContent = t; a.href = href; a.target = "_blank"; a.rel = "noopener"; return a; }
 function btn(txt, label, fn) {
   const b = document.createElement("button"); b.textContent = txt; b.setAttribute("aria-label", label); b.onclick = fn; return b;
@@ -1165,7 +1193,7 @@ function rememberLeg() {
   state.lastLeg = v === "all" ? null : { k: +v };
   save();
 }
-$("gBtn").onclick = () => { rememberLeg(); location.href = googleUrl($("mode").value); $("mapDlg").close(); };
+$("gBtn").onclick = () => { rememberLeg(); const u = googleUrl($("mode").value); $("mapDlg").close(); STANDALONE && appUrl(u) ? openOut(u) : (location.href = u); };
 $("cancelBtn").onclick = () => $("mapDlg").close();
 
 // Home
@@ -1257,7 +1285,7 @@ $("pickNone").onclick = () => setAllPicks(false);
 $("gmapBtn").onclick = () => {
   const ps = chosen(); if (!ps.length) return;
   if (ps.length > MAX_STOPS) cityStatus("Note: Google Maps may drop stops after the first 9 waypoints.");
-  window.open(gChosenUrl(ps), "_blank", "noopener");
+  openOut(gChosenUrl(ps));
 };
 // WhatsApp opens with the list filled in. You choose the chat there.
 function waText(ps, tips) {
@@ -1278,7 +1306,7 @@ function waText(ps, tips) {
 }
 $("waBtn").onclick = () => {
   const ps = chosen(), tips = chosenTips(); if (!ps.length && !tips.length) return;
-  window.open("https://wa.me/?text=" + encodeURIComponent(waText(ps, tips)), "_blank", "noopener");
+  openOut("https://wa.me/?text=" + encodeURIComponent(waText(ps, tips)));
 };
 $("routeBtn").onclick = () => {
   const ps = chosen(); if (ps.length < 2) return;
