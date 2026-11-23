@@ -273,7 +273,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.12.0";
+const APP_VERSION = "2.12.1";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -421,7 +421,7 @@ const cityPlaces = () => favs.places.filter(p => same(p.city, curCity));
 const chosen = () => cityPlaces().filter(p => !isTip(p) && picked.has(pkey(p)));
 const chosenTips = () => cityPlaces().filter(p => isTip(p) && picked.has(pkey(p))); // sent on WhatsApp, not put on the map
 const shownPlaces = () => cityPlaces().filter(p => catFilter === "All" || (catFilter === "Fav" ? p.fav : catOf(p) === catFilter))
-  .sort((a, b) => isTip(b) - isTip(a)); // tips first; sort is stable, so the rest keep their order
+  .sort((a, b) => (!!b.fav - !!a.fav) || (isTip(b) - isTip(a))); // favorites first, then tips; sort is stable, so the rest keep their order
 function cityStatus(t) { $("cityStatus").textContent = t; }
 function renderCity() {
   $("cityTitle").textContent = `${flag(cityCC(curCity))} ${curCity}`;
