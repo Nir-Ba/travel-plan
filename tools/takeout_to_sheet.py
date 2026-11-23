@@ -14,7 +14,7 @@ Map search: Photon (OpenStreetMap, free, no key). Results are cached in
 """
 import csv, json, math, os, re, sys, time, urllib.parse, urllib.request
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 UA = "TravelPlan-import/" + VERSION
 
 # Hebrew / other list names -> what the list is.
@@ -81,7 +81,13 @@ def photon(path, params):
             return feats
         except Exception as e:
             print(f"  photon retry {attempt + 1}: {e}", file=sys.stderr)
-            if attempt < 2: time.sleep(2 * (attempt + 1))
+            if attempt < 2:
+                wait = 2 * (attempt + 1)
+                if getattr(e, "code", None) == 429:  # too many requests: wait as long as the server asks, at least 10 s
+                    try: wait = max(10, int(e.headers.get("Retry-After") or 0))
+                    except (ValueError, AttributeError): wait = 10
+                    print(f"  photon says slow down: waiting {wait} s", file=sys.stderr)
+                time.sleep(wait)
     net_failed = True  # not cached, so the next run tries again
     return []
 
@@ -93,7 +99,8 @@ def save_cache():
 def city_of(p):
     """City name from Photon properties. Tokyo's wards count as Tokyo."""
     if (p.get("countrycode") or "").upper() == "JP" and (p.get("state") or "").lower().startswith("tokyo"): return "Tokyo"
-    return p.get("city") or p.get("town") or p.get("village") or p.get("county") or p.get("state") or ""
+    # Not county or state: a region name would become a city tile in the app. Empty = "add the city".
+    return p.get("city") or p.get("town") or p.get("village") or ""
 
 centres = {}
 def centre(q):
@@ -165,10 +172,19 @@ def main():
     def add(name, note, src, url, city, cat, check, found="", ll=None):
         global net_failed
         if net_failed: check = "NOT FOUND: lookup failed (network), run the script again"; net_failed = False
+        elif not city and check.startswith(("OK", "CHECK")): check = "NOT FOUND: add the city"
         rows.append({"Include": "yes", "City": city, "Category": cat, "Name": name, "Note": note, "Check": check,
                      "Found on map": found, "Source list": src,
                      "Lat": f"{ll[0]:.6f}" if ll else "", "Lon": f"{ll[1]:.6f}" if ll else "", "Google link": url})
 
+    try:
+        read_all(root, add)
+    finally:
+        save_cache()  # also on Ctrl-C or a crash: the next run does not ask Photon again
+    finish(root, rows)
+
+def read_all(root, add):
+    global net_failed
     # 1. Saved lists
     sdir = os.path.join(root, "Saved")
     files = sorted(f for f in os.listdir(sdir) if f.endswith(".csv")) if os.path.isdir(sdir) else []
@@ -228,7 +244,8 @@ def main():
     else:
         print("  no Maps (your places)/Saved Places.json - skipped starred places", file=sys.stderr)
 
-    save_cache()
+
+def finish(root, rows):
     # No city yet, but the name or note says one of the known cities ("Yumoto Spa, ..., Bangkok"): use it.
     known = sorted({r["City"] for r in rows if r["City"]}, key=len, reverse=True)
     fixed = 0
@@ -244,7 +261,9 @@ def main():
     out = os.path.join(root, "Travel Plan import.csv")
     with open(out, "w", encoding="utf-8-sig", newline="") as f:  # BOM: Excel shows Hebrew right
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["Include", "City", "Name"])
-        w.writeheader(); w.writerows(rows)
+        w.writeheader()
+        # A tab in front of = + - @ stops Excel from reading a name or note as a formula. The app trims it.
+        w.writerows({k: ("\t" + v if isinstance(v, str) and v[:1] in "=+-@" else v) for k, v in r.items()} for r in rows)
     n = lambda k: sum(1 for r in rows if r["Check"].startswith(k))
     print(f"\nWrote {len(rows)} rows to {out}")
     write_xlsx(rows, os.path.join(root, "Travel Plan import.xlsx"))

@@ -273,7 +273,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.12.2";
+const APP_VERSION = "2.13.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -327,11 +327,12 @@ const ckey = (name, city) => (name || "").trim().toLowerCase() + "|" + (city || 
 function favIndex(p) {
   return favs.places.findIndex(f => same(f.name, p.name) && same(f.city, state.city));
 }
+// Route page star = the same favorite mark as the city list. It never deletes a saved place.
 function toggleFav(p) {
-  const i = favIndex(p);
-  if (i >= 0) { favs.places.splice(i, 1); setStatus(`Removed "${p.name}" from favorites.`); }
+  const rec = favs.places[favIndex(p)];
+  if (rec) { if (rec.fav) delete rec.fav; else rec.fav = true; setStatus(`${rec.fav ? "Marked" : "Unmarked"} "${p.name}" as favorite.`); }
   else {
-    const f = { name: p.name, city: state.city, cat: "Other" };
+    const f = { name: p.name, city: state.city, cat: "Other", fav: true };
     if (typeof p.lat === "number") Object.assign(f, { lat: p.lat, lon: p.lon });
     if (p.addr) f.addr = p.addr;
     favs.places.push(f); cityRec(state.city);
@@ -539,8 +540,11 @@ let leafletP = null, map = null, mapLayer = null, mapFitFor = "";
 function loadLeaflet() {
   if (!leafletP) leafletP = new Promise((ok, bad) => {
     const css = document.createElement("link"); css.rel = "stylesheet";
-    css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"; document.head.appendChild(css);
+    css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+    css.integrity = "sha512-h9FcoyWjHcOcmEVkxOfTLnmZFWIH0iZhZT1H2TbOq55xssQGEJHEaIm+PgoUaZbRvQTNTluNOEfb1ZRy6D3BOw=="; css.crossOrigin = "anonymous";
+    document.head.appendChild(css);
     const js = document.createElement("script"); js.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    js.integrity = "sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g=="; js.crossOrigin = "anonymous"; // a changed file is refused
     js.onload = () => ok(window.L);
     js.onerror = () => { leafletP = null; bad(new Error("map library did not load")); };
     document.head.appendChild(js);
@@ -588,7 +592,7 @@ function dirUrl(stops, mode) {
   const u = new URL("https://www.google.com/maps/dir/");
   u.searchParams.set("api", "1"); u.searchParams.set("origin", stops[0]);
   u.searchParams.set("destination", stops[stops.length - 1]); u.searchParams.set("travelmode", mode);
-  if (stops.length > 2 && mode !== "transit") u.searchParams.set("waypoints", stops.slice(1, -1).join("|"));
+  if (stops.length > 2 && mode !== "transit") u.searchParams.set("waypoints", stops.slice(1, -1).map(x => x.replace(/\|/g, " ")).join("|")); // | separates stops
   return u.toString();
 }
 
@@ -623,10 +627,10 @@ async function suggest(q) {
     if (!pr.name || ["city", "country", "state", "county"].includes(pr.type)) continue;
     if (center && km(ll, center) > MAX_KM) continue; // stay in this city
     // Chains have many branches: keep each branch, but not exact repeats.
-    const sub = [...new Set([pr.street, pr.district || pr.locality, pr.city].filter(Boolean))].join(", ")
-      || (pr.osm_value || "").replace(/_/g, " ");
+    const addr = [...new Set([pr.street, pr.district || pr.locality, pr.city].filter(Boolean))].join(", ");
+    const sub = addr || (pr.osm_value || "").replace(/_/g, " "); // shown in the list; only addr is saved
     const k = (pr.name + "|" + sub).toLowerCase(); if (seen.has(k)) continue; seen.add(k);
-    out.push({ name: pr.name, cat: osmCat(pr.osm_key, pr.osm_value), sub, ...ll });
+    out.push({ name: pr.name, cat: osmCat(pr.osm_key, pr.osm_value), sub, addr, ...ll });
     if (out.length === 5) break;
   }
   showSug(out);
@@ -649,7 +653,7 @@ function saveNewFav() {
   if (!name) { cityStatus("Type a place name first."); return; }
   if (cityPlaces().some(p => same(p.name, name))) { cityStatus(`"${name}" is already saved.`); return; }
   const f = { name, city: curCity, cat: $("newCat").value };
-  if (f.cat !== "Tips" && sugPick && same(sugPick.name, name)) Object.assign(f, { lat: sugPick.lat, lon: sugPick.lon, addr: sugPick.sub });
+  if (f.cat !== "Tips" && sugPick && same(sugPick.name, name)) { Object.assign(f, { lat: sugPick.lat, lon: sugPick.lon }); if (sugPick.addr) f.addr = sugPick.addr; }
   favs.places.push(f); cityRec(curCity); saveFavs();
   $("newFav").value = ""; $("newCat").value = "Other"; $("newCat").dispatchEvent(new Event("change")); sugPick = null; hideSug();
   if (catFilter !== "All" && catFilter !== f.cat) catFilter = "All";
@@ -683,7 +687,7 @@ function mapsUrl(s) {
   } catch (e) { return ""; }
 }
 async function importFiles(files) {
-  let added = 0, dup = 0, skipped = 0, noCity = 0, read = 0;
+  let added = 0, dup = 0, skipped = 0, noCity = 0, read = 0, renamed = 0, favUp = 0;
   const have = new Set(favs.places.map(p => ckey(p.name, p.city)));
   for (const file of files) {
     const rows = parseCSV(await file.text()); // file.text() already drops the UTF-8 BOM
@@ -698,27 +702,39 @@ async function importFiles(files) {
       const g = (n) => (col(n) >= 0 ? (r[col(n)] || "").trim() : "");
       read++;
       if (/^(no|n|false|0)$/i.test(g("include"))) { skipped++; continue; }
-      const name = g("name"), city = g("city");
+      let name = g("name"); const city = g("city");
       if (!name) { skipped++; continue; }
       if (!city) { noCity++; continue; }
-      if (have.has(ckey(name, city))) { dup++; continue; }
-      const cat = CATS.find(k => same(k, g("category"))) || "Other";
-      const f = { name, city, cat };
       const num = (s) => parseFloat(s.replace(",", ".")); // "32,08" from comma-decimal Excel
       const lat = num(g("lat")), lon = num(g("lon"));
+      const isFav = /^(yes|y|true|1|★)$/i.test(g("favorite"));
+      if (have.has(ckey(name, city))) {
+        const old = favs.places.find(p => same(p.name, name) && same(p.city, city));
+        // Another branch of a chain (over 200 m away): keep it, with its street in the name.
+        const far = old && typeof old.lat === "number" && isFinite(lat) && isFinite(lon) && km(old, { lat, lon }) > 0.2;
+        const alt = far ? `${name} (${(g("address").split(",")[0] || "2").trim()})` : "";
+        if (!alt || have.has(ckey(alt, city))) {
+          if (old && isFav && !old.fav) { old.fav = true; favUp++; } // a backup brings back the star
+          dup++; continue;
+        }
+        name = alt; renamed++;
+      }
+      const cat = CATS.find(k => same(k, g("category"))) || "Other";
+      const f = { name, city, cat };
       if (isFinite(lat) && isFinite(lon)) Object.assign(f, { lat, lon });
       if (g("note")) f.note = g("note");
       if (g("phone")) f.phone = g("phone");
       if (g("address")) f.addr = g("address");
-      if (/^(yes|y|true|1|★)$/i.test(g("favorite"))) f.fav = true;
+      if (isFav) f.fav = true;
       const gl = mapsUrl(g("google link")); if (gl) f.gurl = gl;
       favs.places.push(f); have.add(ckey(name, city)); cityRec(city); added++;
     }
   }
   const ok = saveFavs(); renderHome();
-  console.log("import:", { read, added, dup, skipped, noCity, saved: ok });
+  console.log("import:", { read, added, dup, skipped, noCity, renamed, favUp, saved: ok });
   if (!ok) { homeStatus(`Read ${added} place(s), but could not save them. Storage is full or blocked.`); return; }
-  homeStatus(`Imported ${added} place(s).` + (dup ? ` ${dup} already saved.` : "") + (skipped ? ` ${skipped} skipped (Include = no).` : "")
+  homeStatus(`Imported ${added} place(s).` + (renamed ? ` ${renamed} with the same name as another place got their street added.` : "")
+    + (dup ? ` ${dup} already saved.` : "") + (favUp ? ` ${favUp} starred again.` : "") + (skipped ? ` ${skipped} skipped (Include = no).` : "")
     + (noCity ? ` ${noCity} have no city: add one in the sheet and import again.` : ""));
 }
 
@@ -765,8 +781,8 @@ function render() {
     const c = document.createElement("div"); c.className = "ctrls";
     const up = btn("▲", "Move up", () => move(i, -1)); up.disabled = i === 0;
     const dn = btn("▼", "Move down", () => move(i, 1)); dn.disabled = i === n - 1;
-    const isFav = favIndex(p) >= 0;
-    const fav = btn(isFav ? "★" : "☆", isFav ? "Remove from favorites" : "Save to favorites", () => toggleFav(p));
+    const rec = favs.places[favIndex(p)], isFav = !!(rec && rec.fav);
+    const fav = btn(isFav ? "★" : "☆", isFav ? "Unmark as favorite" : "Mark as favorite", () => toggleFav(p));
     fav.className = isFav ? "fav on" : "fav";
     const del = btn("✕", "Remove", () => { list().splice(i, 1); save(); render(); }); del.className = "del";
     c.append(fav, up, dn, del);
@@ -848,7 +864,7 @@ function openOut(url) {
   location.href = app;
   setTimeout(() => {
     window.removeEventListener("blur", gone); document.removeEventListener("visibilitychange", gone);
-    if (!left) { console.log("Travel Plan openOut: app did not open, web link", url); window.open(url, "_blank", "noopener"); }
+    if (!left) { console.log("Travel Plan openOut: app did not open, web link", url); location.href = url; } // a timer is not a tap, so a new window would be blocked
   }, 1500);
 }
 // Links in the page (place panel, tip buttons, route legs) go the same way.
@@ -1228,7 +1244,8 @@ $("impFile").onchange = async (e) => {
 // Backup: one CSV in the same columns the import reads, so "Import from Maps" restores it.
 function backupCSV() {
   const cols = ["Include", "City", "Category", "Name", "Note", "Phone", "Address", "Lat", "Lon", "Google link", "Favorite"];
-  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  // A tab in front of + = - @ stops Excel from reading a phone or note as a formula. Import trims it.
+  const q = (v) => { let t = String(v ?? ""); if (/^[=+\-@]/.test(t)) t = "\t" + t; return `"${t.replace(/"/g, '""')}"`; };
   const rows = favs.places.map(p => ["yes", p.city, catOf(p), p.name, p.note, p.phone, p.addr,
     typeof p.lat === "number" ? p.lat : "", typeof p.lon === "number" ? p.lon : "", p.gurl, p.fav ? "yes" : ""].map(q).join(","));
   return "\uFEFF" + [cols.join(","), ...rows].join("\r\n") + "\r\n"; // BOM: Excel shows Hebrew right
@@ -1321,7 +1338,10 @@ function waText(ps, tips) {
 }
 $("waBtn").onclick = () => {
   const ps = chosen(), tips = chosenTips(); if (!ps.length && !tips.length) return;
-  openOut("https://wa.me/?text=" + encodeURIComponent(waText(ps, tips)));
+  const url = "https://wa.me/?text=" + encodeURIComponent(waText(ps, tips));
+  if (url.length > 6000) cityStatus("Long list: WhatsApp may cut it. If it does, send fewer places at a time.");
+  console.log("Travel Plan WhatsApp link length", url.length);
+  openOut(url);
 };
 $("routeBtn").onclick = () => {
   const ps = chosen(); if (ps.length < 2) return;
@@ -1342,6 +1362,7 @@ function redraw(why) {
   console.log("Travel Plan redraw:", why, v);
   try {
     if (v === "city" && curCity) renderCity(); else if (v === "home") renderHome(); // plan view keeps its own state
+    const box = $("errBox"); if (box) box.remove(); // drawn again without an error
     document.body.style.transform = "translateZ(0)"; // make Safari paint the page again
     requestAnimationFrame(() => { document.body.style.transform = ""; });
   } catch (e) { showErr(e); }
@@ -1349,7 +1370,8 @@ function redraw(why) {
 function showErr(e) {
   let box = $("errBox");
   if (!box) { box = document.createElement("pre"); box.id = "errBox"; box.style.cssText = "white-space:pre-wrap;padding:16px;margin:16px;background:#fee;color:#900;border-radius:8px;font-size:13px"; document.body.prepend(box); }
-  box.textContent = `Travel Plan v${APP_VERSION} error: ${(e && (e.stack || e.message)) || e}`;
+  box.textContent = `Travel Plan v${APP_VERSION} error (tap to close): ${(e && (e.stack || e.message)) || e}`;
+  box.onclick = () => box.remove();
 }
 window.addEventListener("error", ev => showErr(ev.error || ev.message));
 window.addEventListener("unhandledrejection", ev => showErr(ev.reason));
