@@ -206,7 +206,7 @@
     <div class="status" id="cityStatus"></div>
     <div class="row">
       <button class="fab primary" id="addFab" aria-label="Add a place" aria-expanded="false">＋</button>
-      <button class="fab" id="waBtn" aria-label="Send chosen places on WhatsApp" title="Send chosen places on WhatsApp">💬</button>
+      <button class="fab primary" id="waBtn" aria-label="Send chosen places on WhatsApp" title="Send chosen places on WhatsApp">💬</button>
       <button class="primary" id="gmapBtn" title="Show the chosen places on Google Maps">Maps</button>
       <button class="primary" id="routeBtn">Plan route</button>
     </div>
@@ -270,7 +270,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.9.1";
+const APP_VERSION = "2.9.2";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
