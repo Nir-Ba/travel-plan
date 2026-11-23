@@ -135,7 +135,6 @@
   #placeDlg button.del { background: transparent; }
   li.fplace.tip { background: color-mix(in srgb, var(--card) 88%, #e0a400); }
   li.fplace.hl { background: color-mix(in srgb, var(--card) 80%, var(--accent)); border-color: var(--accent); transition: background .3s; }
-  .tipmark { flex: 0 0 22px; font-size: 18px; text-align: center; }
   /* Import from Google Maps: how-to shows on hover (Mac) or on ⓘ tap (iPhone) */
   .impwrap { position: relative; display: flex; gap: 8px; }
   .impwrap #impBtn { flex: 1; }
@@ -270,7 +269,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.9.2";
+const APP_VERSION = "2.10.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -416,6 +415,7 @@ let curCity = "", catFilter = "All", picked = new Set(), sugPick = null;
 const pkey = (p) => p.name.trim().toLowerCase();
 const cityPlaces = () => favs.places.filter(p => same(p.city, curCity));
 const chosen = () => cityPlaces().filter(p => !isTip(p) && picked.has(pkey(p)));
+const chosenTips = () => cityPlaces().filter(p => isTip(p) && picked.has(pkey(p))); // sent on WhatsApp, not put on the map
 const shownPlaces = () => cityPlaces().filter(p => catFilter === "All" || catOf(p) === catFilter)
   .sort((a, b) => isTip(b) - isTip(a)); // tips first; sort is stable, so the rest keep their order
 function cityStatus(t) { $("cityStatus").textContent = t; }
@@ -436,19 +436,15 @@ function renderCity() {
   if (!ps.length) ul.innerHTML = `<li class="empty">No places yet. Type a name above to add one.</li>`;
   shownPlaces().forEach(p => {
     const li = document.createElement("li"); li.className = (isTip(p) ? "fplace tip" : "fplace") + (pkey(p) === hlKey ? " hl" : "");
-    let cb;
-    if (isTip(p)) { cb = document.createElement("span"); cb.className = "tipmark"; cb.textContent = "💡"; }
-    else {
-      cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = picked.has(pkey(p));
-      cb.setAttribute("aria-label", "Choose " + p.name);
-      cb.onchange = () => { cb.checked ? picked.add(pkey(p)) : picked.delete(pkey(p)); syncPick(); };
-    }
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = picked.has(pkey(p));
+    cb.setAttribute("aria-label", "Choose " + p.name);
+    cb.onchange = () => { cb.checked ? picked.add(pkey(p)) : picked.delete(pkey(p)); syncPick(); };
     // Name, then category and the first line of the note. Tap to open the place panel.
     const row = document.createElement("button"); row.className = "prow"; row.setAttribute("aria-label", "Open " + p.name);
     const txt = document.createElement("span"); txt.className = "ptxt";
     const nm = document.createElement("span"); nm.className = "pname"; nm.textContent = p.name;
     const sub = document.createElement("span"); sub.className = "psub";
-    sub.textContent = isTip(p) ? ([p.phone && "📞 " + p.phone, p.note && p.note.split("\n")[0]].filter(Boolean).join(" · ") || "Tap to add details")
+    sub.textContent = isTip(p) ? "💡 " + ([p.phone && "📞 " + p.phone, p.note && p.note.split("\n")[0]].filter(Boolean).join(" · ") || "Tap to add details")
       : `${CAT_ICON[catOf(p)]} ${catOf(p)}` + (p.note ? " · " + p.note.split("\n")[0] : "");
     txt.append(nm, sub);
     const chev = document.createElement("span"); chev.className = "chev"; chev.textContent = "›";
@@ -516,11 +512,12 @@ function closePlace() {
   renderCity();
 }
 function syncPick() {
-  const n = chosen().length;
-  $("pickCount").textContent = n ? `${n} chosen` : "Tick places to choose them.";
-  $("pickNone").hidden = !n;
+  const n = chosen().length, t = chosenTips().length;
+  $("pickCount").textContent = n || t ? [n && `${n} place${n > 1 ? "s" : ""}`, t && `${t} tip${t > 1 ? "s" : ""}`].filter(Boolean).join(", ") + " chosen"
+    : "Tick places to choose them.";
+  $("pickNone").hidden = !(n || t);
   $("gmapBtn").disabled = !n;
-  $("waBtn").disabled = !n;
+  $("waBtn").disabled = !(n || t);
   $("routeBtn").disabled = n < 2;
   renderMap();
 }
@@ -1251,7 +1248,7 @@ $("newFav").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.prev
 $("newFavBtn").onclick = saveNewFav;
 // Tick or clear the boxes in place: no need to rebuild the list.
 function setAllPicks(on) {
-  if (on) shownPlaces().forEach(p => { if (!isTip(p)) picked.add(pkey(p)); }); else picked.clear();
+  if (on) shownPlaces().forEach(p => picked.add(pkey(p))); else picked.clear();
   document.querySelectorAll("#favPlaces input[type=checkbox]").forEach(cb => cb.checked = on);
   syncPick();
 }
@@ -1263,18 +1260,25 @@ $("gmapBtn").onclick = () => {
   window.open(gChosenUrl(ps), "_blank", "noopener");
 };
 // WhatsApp opens with the list filled in. You choose the chat there.
-function waText(ps) {
-  const lines = [`${curCity} – ${ps.length} place${ps.length > 1 ? "s" : ""}:`];
+function waText(ps, tips) {
+  const lines = [`${curCity}`];
+  if (ps.length) lines.push("", `📍 ${ps.length} place${ps.length > 1 ? "s" : ""}:`);
   ps.forEach((p, i) => {
     lines.push("", `${i + 1}. ${p.name}`);
     if (p.note) lines.push(p.note.trim());
     lines.push(p.gurl || gSearch(placeQ(p, curCity)));
   });
+  if (tips.length) lines.push("", `💡 Tips:`);
+  tips.forEach(p => {
+    lines.push("", `• ${p.name}`);
+    if (p.phone) lines.push("📞 " + p.phone.trim());
+    if (p.note) lines.push(p.note.trim());
+  });
   return lines.join("\n");
 }
 $("waBtn").onclick = () => {
-  const ps = chosen(); if (!ps.length) return;
-  window.open("https://wa.me/?text=" + encodeURIComponent(waText(ps)), "_blank", "noopener");
+  const ps = chosen(), tips = chosenTips(); if (!ps.length && !tips.length) return;
+  window.open("https://wa.me/?text=" + encodeURIComponent(waText(ps, tips)), "_blank", "noopener");
 };
 $("routeBtn").onclick = () => {
   const ps = chosen(); if (ps.length < 2) return;
@@ -1288,6 +1292,26 @@ $("routeBtn").onclick = () => {
 // Plan page
 $("planBack").onclick = () => (state.city ? go("city", state.city) : go("home"));
 window.addEventListener("hashchange", route);
+// iPhone home-screen app: after Maps or WhatsApp, the screen can come back white.
+// Draw the current screen again when the app is shown, and show any error instead of a white page.
+function redraw(why) {
+  const v = view();
+  console.log("Travel Plan redraw:", why, v);
+  try {
+    if (v === "city" && curCity) renderCity(); else if (v === "home") renderHome(); // plan view keeps its own state
+    document.body.style.transform = "translateZ(0)"; // make Safari paint the page again
+    requestAnimationFrame(() => { document.body.style.transform = ""; });
+  } catch (e) { showErr(e); }
+}
+function showErr(e) {
+  let box = $("errBox");
+  if (!box) { box = document.createElement("pre"); box.id = "errBox"; box.style.cssText = "white-space:pre-wrap;padding:16px;margin:16px;background:#fee;color:#900;border-radius:8px;font-size:13px"; document.body.prepend(box); }
+  box.textContent = `Travel Plan v${APP_VERSION} error: ${(e && (e.stack || e.message)) || e}`;
+}
+window.addEventListener("error", ev => showErr(ev.error || ev.message));
+window.addEventListener("unhandledrejection", ev => showErr(ev.reason));
+window.addEventListener("pageshow", ev => { if (ev.persisted) redraw("pageshow"); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") redraw("visible"); });
 
 load();
 loadFavs();
