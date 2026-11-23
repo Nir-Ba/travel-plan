@@ -135,6 +135,8 @@
   input.pdname:focus { border-color: var(--accent); background: var(--card); outline: none; }
   #placeDlg a.btnlink { display: block; text-align: center; padding: 12px; border-radius: 12px; background: var(--line); color: var(--ink); font-weight: 600; text-decoration: none; }
   #placeDlg button.del { background: transparent; }
+  button.star { flex: 0 0 36px; height: 36px; padding: 0; border: 0; background: transparent; font-size: 24px; line-height: 1; color: var(--muted, #999); }
+  button.star.on { color: #e0a400; }
   li.fplace.tip { background: color-mix(in srgb, var(--card) 88%, #e0a400); }
   li.fplace.hl { background: color-mix(in srgb, var(--card) 80%, var(--accent)); border-color: var(--accent); transition: background .3s; }
   /* Import from Google Maps: how-to shows on hover (Mac) or on ⓘ tap (iPhone) */
@@ -271,7 +273,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.11.0";
+const APP_VERSION = "2.12.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -418,18 +420,20 @@ const pkey = (p) => p.name.trim().toLowerCase();
 const cityPlaces = () => favs.places.filter(p => same(p.city, curCity));
 const chosen = () => cityPlaces().filter(p => !isTip(p) && picked.has(pkey(p)));
 const chosenTips = () => cityPlaces().filter(p => isTip(p) && picked.has(pkey(p))); // sent on WhatsApp, not put on the map
-const shownPlaces = () => cityPlaces().filter(p => catFilter === "All" || catOf(p) === catFilter)
+const shownPlaces = () => cityPlaces().filter(p => catFilter === "All" || (catFilter === "Fav" ? p.fav : catOf(p) === catFilter))
   .sort((a, b) => isTip(b) - isTip(a)); // tips first; sort is stable, so the rest keep their order
 function cityStatus(t) { $("cityStatus").textContent = t; }
 function renderCity() {
   $("cityTitle").textContent = `${flag(cityCC(curCity))} ${curCity}`;
   const ps = cityPlaces();
   const present = CATS.filter(k => ps.some(p => catOf(p) === k));
-  if (catFilter !== "All" && !present.includes(catFilter)) catFilter = "All";
+  const nFav = ps.filter(p => p.fav).length;
+  if (catFilter !== "All" && !(catFilter === "Fav" ? nFav : present.includes(catFilter))) catFilter = "All";
   const chips = $("catChips"); chips.innerHTML = "";
-  ["All", ...present].forEach(k => {
-    const n = k === "All" ? ps.length : ps.filter(p => catOf(p) === k).length;
-    const b = btn(`${k === "All" ? "" : CAT_ICON[k] + " "}${k} · ${n}`, `Show ${k}`, () => { catFilter = k; renderCity(); });
+  ["All", ...(nFav ? ["Fav"] : []), ...present].forEach(k => {
+    const n = k === "All" ? ps.length : k === "Fav" ? nFav : ps.filter(p => catOf(p) === k).length;
+    const lbl = k === "All" ? "All" : k === "Fav" ? "★ Favorites" : `${CAT_ICON[k]} ${k}`;
+    const b = btn(`${lbl} · ${n}`, `Show ${k === "Fav" ? "favorites" : k}`, () => { catFilter = k; renderCity(); });
     b.className = "chip" + (k === catFilter ? " on" : "");
     chips.appendChild(b);
   });
@@ -452,7 +456,12 @@ function renderCity() {
     const chev = document.createElement("span"); chev.className = "chev"; chev.textContent = "›";
     row.append(txt, chev);
     row.onclick = () => openPlace(p);
-    li.append(cb, row);
+    // Star: tap to mark or unmark a favorite. Saved at once.
+    const star = document.createElement("button"); star.className = "star" + (p.fav ? " on" : "");
+    star.textContent = p.fav ? "★" : "☆";
+    star.setAttribute("aria-label", (p.fav ? "Unmark " : "Mark ") + p.name + " as favorite"); star.setAttribute("aria-pressed", String(!!p.fav));
+    star.onclick = () => { if (p.fav) delete p.fav; else p.fav = true; saveFavs(); renderCity(); };
+    li.append(cb, row, star);
     ul.appendChild(li);
   });
   syncPick();
@@ -701,6 +710,7 @@ async function importFiles(files) {
       if (g("note")) f.note = g("note");
       if (g("phone")) f.phone = g("phone");
       if (g("address")) f.addr = g("address");
+      if (/^(yes|y|true|1|★)$/i.test(g("favorite"))) f.fav = true;
       const gl = mapsUrl(g("google link")); if (gl) f.gurl = gl;
       favs.places.push(f); have.add(ckey(name, city)); cityRec(city); added++;
     }
@@ -1217,10 +1227,10 @@ $("impFile").onchange = async (e) => {
 };
 // Backup: one CSV in the same columns the import reads, so "Import from Maps" restores it.
 function backupCSV() {
-  const cols = ["Include", "City", "Category", "Name", "Note", "Phone", "Address", "Lat", "Lon", "Google link"];
+  const cols = ["Include", "City", "Category", "Name", "Note", "Phone", "Address", "Lat", "Lon", "Google link", "Favorite"];
   const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const rows = favs.places.map(p => ["yes", p.city, catOf(p), p.name, p.note, p.phone, p.addr,
-    typeof p.lat === "number" ? p.lat : "", typeof p.lon === "number" ? p.lon : "", p.gurl].map(q).join(","));
+    typeof p.lat === "number" ? p.lat : "", typeof p.lon === "number" ? p.lon : "", p.gurl, p.fav ? "yes" : ""].map(q).join(","));
   return "\uFEFF" + [cols.join(","), ...rows].join("\r\n") + "\r\n"; // BOM: Excel shows Hebrew right
 }
 $("backupBtn").onclick = () => {
