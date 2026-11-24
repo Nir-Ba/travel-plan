@@ -309,7 +309,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.18.0";
+const APP_VERSION = "2.18.1";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -1443,9 +1443,19 @@ $("evGo").onclick = async () => {
       $("evNote").textContent = "Loading holidays…";
       try {
         const years = [...new Set([from.slice(0, 4), to.slice(0, 4)])];
-        const lists = await Promise.all(years.map(y => fetch(`https://date.nager.at/api/v3/PublicHolidays/${y}/${cc}`).then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })));
-        const hol = lists.flat().filter(h => h.date >= from && h.date <= to);
-        $("evNote").textContent = hol.length ? "" : "No public holidays on these dates.";
+        // 204 = the service has no data for this country (e.g. IL, TH, IN, AE). That is not an error.
+        const lists = await Promise.all(years.map(y => fetch(`https://date.nager.at/api/v3/PublicHolidays/${y}/${cc}`).then(r => {
+          if (r.status === 204) return null;
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })));
+        if (lists.includes(null)) {
+          console.log("Holidays: no data for country", cc);
+          $("evNote").textContent = `No holiday list for ${flag(cc)} ${cc}. Use the search link.`;
+          evRow("🎉", "Search: public holidays", gq("public holidays"));
+        }
+        const hol = lists.filter(Boolean).flat().filter(h => h.date >= from && h.date <= to);
+        if (!lists.includes(null)) $("evNote").textContent = hol.length ? "" : "No public holidays on these dates.";
         hol.forEach(h => {
           const local = h.localName && h.localName !== h.name ? ` (${h.localName})` : "";
           const part = h.global === false ? " · some regions only" : "";
@@ -1454,7 +1464,7 @@ $("evGo").onclick = async () => {
         });
       } catch (e) {
         console.log("Holidays fetch failed:", e);
-        $("evNote").textContent = "Could not load holidays (offline?). Use the search link.";
+        $("evNote").textContent = `Could not load holidays (${e.message || e}). Use the search link.`;
         evRow("🎉", "Search: public holidays", gq("public holidays"));
       }
     }
