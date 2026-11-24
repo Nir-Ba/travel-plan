@@ -89,7 +89,7 @@
   dialog .stack { display: flex; flex-direction: column; gap: 10px; }
   .ctrls button.fav.on { color: #e0a400; }
   /* Home: one square per city */
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .tile { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
     background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 5px; text-align: center; }
   .tile .flag { font-size: 20px; line-height: 1; }
@@ -278,7 +278,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.14.2";
+const APP_VERSION = "2.14.3";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
