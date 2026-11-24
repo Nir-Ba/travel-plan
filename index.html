@@ -138,6 +138,13 @@
   .prow .chev { color: var(--muted); font-size: 20px; font-weight: 400; }
   button.fab { flex: 0 0 52px; border-radius: 50%; font-size: 26px; font-weight: 400; padding: 0; height: 52px; align-self: center; }
   #placeDlg textarea { min-height: 90px; }
+  #evList { list-style: none; padding: 0; margin: 0; max-height: 45vh; overflow-y: auto; }
+  #evList li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 15px; }
+  #evList li a, #evList li span.t { flex: 1; color: var(--ink); text-decoration: none; }
+  #evList li a { color: var(--accent); }
+  #evList button { background: transparent; padding: 4px 6px; font-size: 18px; }
+  .evtypes label { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+  .evtypes input { width: 20px; height: 20px; accent-color: var(--accent); }
   input.pdname { font-size: 20px; font-weight: 700; border-color: transparent; background: transparent; padding: 6px 8px; margin: -6px 0 10px -8px; }
   input.pdname:focus { border-color: var(--accent); background: var(--card); outline: none; }
   #placeDlg a.btnlink { display: block; text-align: center; padding: 12px; border-radius: 12px; background: var(--line); color: var(--ink); font-weight: 600; text-decoration: none; }
@@ -193,7 +200,8 @@
 <section id="cityView" hidden>
   <div class="topbar">
     <button id="cityBack" class="back">‹ Cities</button>
-    <button id="cityDel" class="small del">Remove city</button>
+    <div><button id="evBtn" class="small" style="color:var(--accent)">📅 Events</button>
+    <button id="cityDel" class="small del">Remove city</button></div>
   </div>
   <h1 id="cityTitle"></h1>
   <div class="section" id="addBox" hidden>
@@ -264,6 +272,23 @@
   </div>
 </dialog>
 
+<dialog id="evDlg">
+  <h2 id="evTitle">Events</h2>
+  <div class="stack">
+    <div class="row"><label class="small" style="flex:1">From<input id="evFrom" type="date"></label>
+      <label class="small" style="flex:1">To<input id="evTo" type="date"></label></div>
+    <div class="evtypes stack">
+      <label><input type="checkbox" id="evHol" checked> 🎉 Holidays</label>
+      <label><input type="checkbox" id="evSport" checked> 🏃 Sport (marathons, races, games)</label>
+      <label><input type="checkbox" id="evCity" checked> 🏛 City specials (free museums, markets)</label>
+    </div>
+    <button id="evGo" class="primary">Search</button>
+    <div class="fine" id="evNote"></div>
+    <ul id="evList"></ul>
+    <button id="evClose">Close</button>
+  </div>
+</dialog>
+
 <dialog id="mapDlg">
   <h2>Open in Google Maps</h2>
   <div class="stack">
@@ -284,7 +309,7 @@
 </dialog>
 
 <script>
-const APP_VERSION = "2.17.0";
+const APP_VERSION = "2.18.0";
 const KEY = "travelplan.v1";
 const FAV_KEY = "travelplan.favs.v1"; // own key, so "Clear list" never touches favorites
 const $ = (id) => document.getElementById(id);
@@ -1377,6 +1402,74 @@ $("pdDel").onclick = () => {
   saveFavs(); $("placeDlg").close(); renderCity(); cityStatus(`Deleted "${p.name}".`);
 };
 $("newCat").value = "Other";
+
+// ---- Events: public holidays from Nager.Date (free, no key) + Google search links for the rest ----
+const evIso = (d) => d.toISOString().slice(0, 10);
+const evNice = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+$("evBtn").onclick = () => {
+  $("evTitle").textContent = `📅 Events in ${curCity}`;
+  if (!$("evFrom").value) { const t = new Date(); $("evFrom").value = evIso(t); t.setDate(t.getDate() + 7); $("evTo").value = evIso(t); }
+  $("evList").replaceChildren(); $("evNote").textContent = "";
+  $("evDlg").showModal();
+};
+$("evClose").onclick = () => $("evDlg").close();
+function evRow(icon, text, url, save) {
+  const li = document.createElement("li");
+  const t = document.createElement(url ? "a" : "span");
+  t.className = "t"; t.textContent = `${icon} ${text}`;
+  if (url) { t.href = url; t.target = "_blank"; t.rel = "noopener"; }
+  li.append(t);
+  if (save) {
+    const b = document.createElement("button"); b.textContent = "☆"; b.title = "Save to this city as a tip";
+    b.onclick = () => {
+      if (favs.places.some(p => same(p.city, curCity) && same(p.name, save.name))) { b.textContent = "⭐"; return; }
+      favs.places.push({ name: save.name, city: curCity, cat: "Tips", note: save.note, fav: true });
+      cityRec(curCity); saveFavs(); renderCity(); b.textContent = "⭐";
+    };
+    li.append(b);
+  }
+  $("evList").append(li);
+}
+$("evGo").onclick = async () => {
+  const from = $("evFrom").value, to = $("evTo").value;
+  if (!from || !to || to < from) { $("evNote").textContent = "Pick a From date and a later To date."; return; }
+  $("evList").replaceChildren(); $("evNote").textContent = "";
+  const when = `${evNice(from)} – ${evNice(to)} ${to.slice(0, 4)}`;
+  const gq = (q) => "https://www.google.com/search?q=" + encodeURIComponent(`${curCity} ${q} ${when}`);
+  if ($("evHol").checked) {
+    const cc = cityCC(curCity);
+    if (!cc) { $("evNote").textContent = "No country known for this city yet, so no holiday list."; }
+    else {
+      $("evNote").textContent = "Loading holidays…";
+      try {
+        const years = [...new Set([from.slice(0, 4), to.slice(0, 4)])];
+        const lists = await Promise.all(years.map(y => fetch(`https://date.nager.at/api/v3/PublicHolidays/${y}/${cc}`).then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })));
+        const hol = lists.flat().filter(h => h.date >= from && h.date <= to);
+        $("evNote").textContent = hol.length ? "" : "No public holidays on these dates.";
+        hol.forEach(h => {
+          const local = h.localName && h.localName !== h.name ? ` (${h.localName})` : "";
+          const part = h.global === false ? " · some regions only" : "";
+          const name = `${evNice(h.date)} · ${h.name}${local}`;
+          evRow("🎉", name + part, null, { name: "Holiday: " + name, note: "Public holiday. Shops and museums may close." + part });
+        });
+      } catch (e) {
+        console.log("Holidays fetch failed:", e);
+        $("evNote").textContent = "Could not load holidays (offline?). Use the search link.";
+        evRow("🎉", "Search: public holidays", gq("public holidays"));
+      }
+    }
+  }
+  if ($("evSport").checked) {
+    evRow("🏃", "Search: marathons and races", gq("marathon OR race OR run"));
+    evRow("⚽", "Search: sport games", gq("sport events matches"));
+  }
+  if ($("evCity").checked) {
+    evRow("🏛", "Search: free museum days", gq("free museum day"));
+    evRow("🥖", "Search: food and street markets", gq("food market OR street market"));
+    evRow("🎭", "Search: festivals and city events", gq("festival events"));
+  }
+  if (!$("evList").children.length && !$("evNote").textContent) $("evNote").textContent = "Tick at least one type.";
+};
 $("cityBack").onclick = () => go("home");
 $("cityDel").onclick = () => {
   const n = cityPlaces().length;
